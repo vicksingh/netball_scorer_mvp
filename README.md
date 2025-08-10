@@ -36,3 +36,4 @@ npm run build
 This app is configured for deployment on Vercel with Firebase integration.
 
 <!-- Build fix deployed at: 2024-12-19 -->
+<!-- Force Vercel to pick up new commit: 2024-12-19 16:12 -->
