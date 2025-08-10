@@ -190,12 +190,12 @@ function GamePageContent() {
     };
   }, []);
 
-  // Use the custom timer hook
+  // Use the custom timer hook with better null safety
   const { remainingMs, isExpired } = usePhaseTimer({
     isRunning: game?.state?.isRunning || false,
     phaseStartedAt: game?.state?.phaseStartedAt || null,
     elapsedMs: game?.state?.elapsedMs || 0,
-    phaseDurationMs: game?.state?.phase && game?.settings ? phaseDurationMs(game.state.phase, game.settings) : 0,
+    phaseDurationMs: (game?.state?.phase && game?.settings) ? phaseDurationMs(game.state.phase, game.settings) : 0,
   });
 
   // Guard to avoid auto-advancing on initial mount
@@ -217,7 +217,7 @@ function GamePageContent() {
       const graceMs = isFinalQuarter ? 0 : 5000; // 5s grace otherwise
       const startedAt = new Date(game.state.phaseStartedAt).getTime();
       const elapsed = Date.now() - startedAt;
-      const expectedDuration = game.state.phase && game.settings ? phaseDurationMs(game.state.phase, game.settings) : 0;
+      const expectedDuration = (game?.state?.phase && game?.settings) ? phaseDurationMs(game.state.phase, game.settings) : 0;
 
       if (elapsed >= expectedDuration + graceMs) {
         console.log('Phase expired (after grace), advancing to next phase');
@@ -289,6 +289,27 @@ function GamePageContent() {
   }, [game?.state?.phase?.type]);
 
   if (!game) return <div>Loading…</div>;
+  
+  // Safety check for game state
+  if (!game.state || !game.state.phase) {
+    console.error('Game state is missing or incomplete:', game);
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-indigo-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-red-400 text-6xl mb-4">⚠️</div>
+          <div className="text-white text-xl mb-2">Game Data Error</div>
+          <div className="text-white/60 text-sm mb-4">The game data appears to be corrupted or incomplete.</div>
+          <button 
+            onClick={() => window.location.href = '/new'} 
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
+          >
+            Start New Game
+          </button>
+        </div>
+      </div>
+    );
+  }
+  
   const { teamA, teamB, state, settings } = game;
   const leadingTeamName = (state?.scores?.A || 0) > (state?.scores?.B || 0) ? (teamA?.name || 'Team A') : (teamB?.name || 'Team B');
   const winnerText = (state?.scores?.A || 0) === (state?.scores?.B || 0) ? "IT'S A DRAW" : `${leadingTeamName} WINS!`;
@@ -589,6 +610,18 @@ function GamePageContent() {
                   >
                     {syncStatus === 'syncing' ? 'Syncing...' : 'Sync Now'}
                   </button>
+                  
+                  {/* Firebase Connection Status */}
+                  <div className="flex items-center space-x-1 ml-2 pl-2 border-l border-slate-600">
+                    <div className={`w-2 h-2 rounded-full ${
+                      typeof window !== 'undefined' && navigator.onLine ? 'bg-emerald-400' : 'bg-red-400'
+                    }`}></div>
+                    <span className={`text-xs ${
+                      typeof window !== 'undefined' && navigator.onLine ? 'text-emerald-400' : 'text-red-400'
+                    }`}>
+                      {typeof window !== 'undefined' && navigator.onLine ? 'Online' : 'Offline'}
+                    </span>
+                  </div>
                 </div>
               )}
             </div>

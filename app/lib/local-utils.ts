@@ -12,6 +12,12 @@ export function msToClock(ms: number): string {
 export function phaseDurationMs(phase: any, settings: any): number {
   console.log('phaseDurationMs called with:', { phase, settings });
   
+  // Add null safety checks
+  if (!phase || !settings) {
+    console.warn('phaseDurationMs: Missing phase or settings:', { phase, settings });
+    return 0;
+  }
+  
   if (phase.type === "quarter") {
     const duration = settings.quarterDurationSec * 1000;
     console.log('Quarter duration:', duration, 'ms');

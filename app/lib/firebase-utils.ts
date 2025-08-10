@@ -54,8 +54,13 @@ let firebaseAuth: any = null;
 const getFirebaseDB = () => {
   if (isBuildTime) return null;
   if (!firebaseDb) {
-    const { getFirebaseDB } = require('./firebase');
-    firebaseDb = getFirebaseDB();
+    try {
+      const { getFirebaseDB } = require('./firebase');
+      firebaseDb = getFirebaseDB();
+    } catch (error) {
+      console.warn('Failed to load Firebase DB:', error);
+      return null;
+    }
   }
   return firebaseDb;
 };
@@ -63,8 +68,13 @@ const getFirebaseDB = () => {
 const getFirebaseAuth = () => {
   if (isBuildTime) return null;
   if (!firebaseAuth) {
-    const { getFirebaseAuth } = require('./firebase');
-    firebaseAuth = getFirebaseAuth();
+    try {
+      const { getFirebaseAuth } = require('./firebase');
+      firebaseAuth = getFirebaseAuth();
+    } catch (error) {
+      console.warn('Failed to load Firebase Auth:', error);
+      return null;
+    }
   }
   return firebaseAuth;
 };
@@ -134,8 +144,15 @@ async function checkFirebaseConnection(): Promise<boolean> {
   try {
     if (!isOnline) return false;
     
+    const db = getFirebaseDB();
+    if (!db) {
+      console.warn('Firebase connection check failed: Database not available');
+      isFirebaseConnected = false;
+      return false;
+    }
+    
     // Try a simple Firebase operation
-    const testDoc = doc(getFirebaseDB(), '_test_connection', 'test');
+    const testDoc = doc(db, '_test_connection', 'test');
     await setDoc(testDoc, { timestamp: serverTimestamp() }, { merge: true });
     await deleteDoc(testDoc);
     isFirebaseConnected = true;
