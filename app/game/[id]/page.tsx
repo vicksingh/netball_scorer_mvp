@@ -290,7 +290,7 @@ function GamePageContent() {
 
   if (!game) return <div>Loading…</div>;
   const { teamA, teamB, state, settings } = game;
-  const leadingTeamName = (state?.scores?.A || 0) > (state?.scores?.B || 0) ? teamA.name : teamB.name;
+  const leadingTeamName = (state?.scores?.A || 0) > (state?.scores?.B || 0) ? (teamA?.name || 'Team A') : (teamB?.name || 'Team B');
   const winnerText = (state?.scores?.A || 0) === (state?.scores?.B || 0) ? "IT'S A DRAW" : `${leadingTeamName} WINS!`;
   const isDraw = (state?.scores?.A || 0) === (state?.scores?.B || 0);
   const winMargin = Math.abs((state?.scores?.A || 0) - (state?.scores?.B || 0));
@@ -669,7 +669,7 @@ function GamePageContent() {
                   CENTRE PASS
                 </div>
                 <div className="text-xl font-bold text-white">
-                  {state.centrePass === "A" ? teamA.name : teamB.name}
+                  {state?.centrePass === "A" ? (teamA?.name || 'Team A') : (teamB?.name || 'Team B')}
                 </div>
               </div>
               <button 
@@ -697,7 +697,7 @@ function GamePageContent() {
           <div className="grid grid-cols-3 items-center text-center gap-4">
             {/* Team A */}
             <div className="space-y-4">
-              <div className="text-white/60 text-sm font-medium uppercase tracking-wider">{teamA.name}</div>
+              <div className="text-white/60 text-sm font-medium uppercase tracking-wider">{teamA?.name || 'Team A'}</div>
               <div className="text-5xl font-bold text-white leading-none">{state?.scores?.A || 0}</div>
               <button 
                 className={`font-bold py-3 px-4 rounded-xl shadow-lg transition-all duration-200 w-full text-sm ${
@@ -791,7 +791,7 @@ function GamePageContent() {
                       // Edit mode - allow manual score editing
                       console.log('Edit scores clicked');
                       const scoreInput = prompt(
-                        `Edit Scores:\n\n${teamA.name}: ${state?.scores?.A || 0}\n${teamB.name}: ${state?.scores?.B || 0}\n\nEnter new scores (format: "A,B" or "A B"):`,
+                        `Edit Scores:\n\n${teamA?.name || 'Team A'}: ${state?.scores?.A || 0}\n${teamB?.name || 'Team B'}: ${state?.scores?.B || 0}\n\nEnter new scores (format: "A,B" or "A B"):`,
                         `${state?.scores?.A || 0},${state?.scores?.B || 0}`
                       );
                       
@@ -855,7 +855,7 @@ function GamePageContent() {
 
             {/* Team B */}
             <div className="space-y-4">
-              <div className="text-white/60 text-sm font-medium uppercase tracking-wider">{teamB.name}</div>
+              <div className="text-white/60 text-sm font-medium uppercase tracking-wider">{teamB?.name || 'Team B'}</div>
               <div className="text-5xl font-bold text-white leading-none">{state?.scores?.B || 0}</div>
               <button 
                 className={`font-bold py-3 px-4 rounded-xl shadow-lg transition-all duration-200 w-full text-sm ${
@@ -882,8 +882,8 @@ function GamePageContent() {
             <div className="bg-slate-800/60 rounded-lg p-3 border border-slate-600/30">
               <div className="text-slate-400 text-xs font-medium mb-2">Teams</div>
               <div className="space-y-1">
-                <div className="text-blue-300 text-xs font-medium h-6 flex items-center">{teamA.name}</div>
-                <div className="text-red-300 text-xs font-medium h-6 flex items-center">{teamB.name}</div>
+                <div className="text-blue-300 text-xs font-medium h-6 flex items-center">{teamA?.name || 'Team A'}</div>
+                <div className="text-red-300 text-xs font-medium h-6 flex items-center">{teamB?.name || 'Team B'}</div>
               </div>
             </div>
             
@@ -948,11 +948,11 @@ function GamePageContent() {
                 console.log('Game log clicked');
                 const gameLog = {
                   gameId: id,
-                  teamA: teamA.name,
-                  teamB: teamB.name,
-                  finalScore: state.scores,
-                  quarterScores: state.quarterScores,
-                  duration: msToClock(state.elapsedMs),
+                  teamA: teamA?.name || 'Team A',
+                  teamB: teamB?.name || 'Team B',
+                  finalScore: state?.scores,
+                  quarterScores: state?.quarterScores,
+                  duration: msToClock(state?.elapsedMs || 0),
                   completedAt: new Date().toISOString(),
                 };
                 console.log('Game Log:', gameLog);
@@ -964,7 +964,7 @@ function GamePageContent() {
                   <div class="bg-slate-800 rounded-2xl p-6 border border-slate-600/30 shadow-xl max-w-lg w-full mx-4 max-h-[80vh] overflow-y-auto">
                     <div class="text-center mb-6">
                       <h3 class="text-white font-bold text-xl mb-2">Game Log</h3>
-                      <p class="text-white/60 text-sm">${teamA.name} vs ${teamB.name}</p>
+                      <p class="text-white/60 text-sm">${teamA?.name || 'Team A'} vs ${teamB?.name || 'Team B'}</p>
                     </div>
                     
                     <!-- Final Score -->
@@ -974,8 +974,8 @@ function GamePageContent() {
                       </div>
                       <div class="flex justify-center items-center space-x-8">
                         <div class="text-center">
-                          <div class="text-blue-300 text-sm font-medium">${teamA.name}</div>
-                          <div class="text-white text-3xl font-bold">${state.scores.A}</div>
+                          <div class="text-blue-300 text-sm font-medium">${teamA?.name || 'Team A'}</div>
+                          <div class="text-white text-3xl font-bold">${state?.scores?.A || 0}</div>
                         </div>
                         <div class="text-white/40 text-2xl font-bold">-</div>
                         <div class="text-center">
@@ -1005,8 +1005,8 @@ function GamePageContent() {
                         <div class="text-center">
                           <div class="text-slate-400 text-xs font-medium mb-2">Teams</div>
                           <div class="space-y-1">
-                            <div class="text-blue-300 text-xs font-medium h-6 flex items-center justify-center">${teamA.name}</div>
-                            <div class="text-red-300 text-xs font-medium h-6 flex items-center justify-center">${teamB.name}</div>
+                            <div class="text-blue-300 text-xs font-medium h-6 flex items-center justify-center">${teamA?.name || 'Team A'}</div>
+                            <div class="text-red-300 text-xs font-medium h-6 flex items-center justify-center">${teamB?.name || 'Team B'}</div>
                           </div>
                         </div>
                         ${[1, 2, 3, 4].map(quarter => `
@@ -1083,7 +1083,7 @@ function GamePageContent() {
           <div className="bg-slate-900/90 border border-slate-700 rounded-2xl p-8 max-w-md w-full text-center shadow-2xl">
             <div className="text-slate-300 text-sm uppercase tracking-wider mb-2">Full Time</div>
             <div className="text-white text-3xl font-extrabold mb-3">{winnerText}</div>
-            <div className="text-slate-200 text-lg font-semibold mb-6">{teamA.name} {state.scores.A} - {state.scores.B} {teamB.name}</div>
+            <div className="text-slate-200 text-lg font-semibold mb-6">{teamA?.name || 'Team A'} {state?.scores?.A || 0} - {state?.scores?.B || 0} {teamB?.name || 'Team B'}</div>
             <div className="flex gap-3 justify-center">
               <button
                 className="bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-sm"
