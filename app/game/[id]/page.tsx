@@ -438,6 +438,12 @@ function GamePageContent() {
   }
 
   function startPause() {
+    // Safety check: ensure state exists before proceeding
+    if (!state) {
+      console.error('Cannot start/pause: game state is not loaded yet');
+      return;
+    }
+    
     console.log('startPause called, current state:', { isRunning: state.isRunning, phase: state.phase });
     
     if (!state.isRunning) {
