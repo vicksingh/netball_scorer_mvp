@@ -8,6 +8,11 @@ const isBuildTime = process.env.NODE_ENV === 'production' && typeof window === '
 
 // Validate required environment variables only when not building
 const validateFirebaseConfig = () => {
+  // Skip validation completely during build time
+  if (isBuildTime) {
+    return false;
+  }
+
   const requiredEnvVars = {
     NEXT_PUBLIC_FIREBASE_API_KEY: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
     NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
@@ -27,12 +32,9 @@ const validateFirebaseConfig = () => {
       'Please create a .env.local file with the required Firebase configuration.'
     );
   }
-};
 
-// Only validate during runtime, not build time
-if (!isBuildTime) {
-  validateFirebaseConfig();
-}
+  return true;
+};
 
 // Initialize Firebase only if we have the required config
 let app: any = null;
@@ -44,8 +46,18 @@ const initializeFirebase = () => {
   if (app) return { app, auth: authInstance, db: dbInstance, analytics: analyticsInstance };
 
   try {
-    validateFirebaseConfig();
-    
+    // Skip initialization during build time
+    if (isBuildTime) {
+      console.log('Skipping Firebase initialization during build time');
+      return { app: null, auth: null, db: null, analytics: null };
+    }
+
+    const isValid = validateFirebaseConfig();
+    if (!isValid) {
+      console.log('Firebase config validation failed, skipping initialization');
+      return { app: null, auth: null, db: null, analytics: null };
+    }
+
     const firebaseConfig = {
       apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY!,
       authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN!,
@@ -102,9 +114,9 @@ export const getFirebaseAnalytics = () => {
   return analyticsInstance;
 };
 
-// Legacy exports for backward compatibility
-export const auth = getFirebaseAuth();
-export const db = getFirebaseDB();
-export const analytics = getFirebaseAnalytics();
+// Legacy exports for backward compatibility - but make them safe during build
+export const auth = isBuildTime ? null : getFirebaseAuth();
+export const db = isBuildTime ? null : getFirebaseDB();
+export const analytics = isBuildTime ? null : getFirebaseAnalytics();
 
 export default app;

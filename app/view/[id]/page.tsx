@@ -8,10 +8,14 @@ import { onSnapshot, doc, enableNetwork, disableNetwork } from 'firebase/firesto
 // import { db } from "../../lib/firebase";
 import { loadGuestGame, loadHybridGuestGame } from "../../lib/guest-storage";
 
+// Check if we're in a build environment
+const isBuildTime = process.env.NODE_ENV === 'production' && typeof window === 'undefined';
+
 // Lazy Firebase db import
 let firebaseDb: any = null;
 
 const getFirebaseDB = () => {
+  if (isBuildTime) return null;
   if (!firebaseDb) {
     const { getFirebaseDB } = require('../../lib/firebase');
     firebaseDb = getFirebaseDB();

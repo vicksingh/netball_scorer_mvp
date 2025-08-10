@@ -14,10 +14,14 @@ import {
 // import { auth } from '../lib/firebase';
 import { clearGuestData } from '../lib/guest-storage';
 
+// Check if we're in a build environment
+const isBuildTime = process.env.NODE_ENV === 'production' && typeof window === 'undefined';
+
 // Lazy Firebase auth import
 let firebaseAuth: any = null;
 
 const getFirebaseAuth = () => {
+  if (isBuildTime) return null;
   if (!firebaseAuth) {
     const { getFirebaseAuth } = require('../lib/firebase');
     firebaseAuth = getFirebaseAuth();

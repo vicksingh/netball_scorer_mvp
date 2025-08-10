@@ -44,11 +44,15 @@ import {
   HybridGuestGame
 } from './guest-storage';
 
+// Check if we're in a build environment
+const isBuildTime = process.env.NODE_ENV === 'production' && typeof window === 'undefined';
+
 // Lazy Firebase imports
 let firebaseDb: any = null;
 let firebaseAuth: any = null;
 
 const getFirebaseDB = () => {
+  if (isBuildTime) return null;
   if (!firebaseDb) {
     const { getFirebaseDB } = require('./firebase');
     firebaseDb = getFirebaseDB();
@@ -57,6 +61,7 @@ const getFirebaseDB = () => {
 };
 
 const getFirebaseAuth = () => {
+  if (isBuildTime) return null;
   if (!firebaseAuth) {
     const { getFirebaseAuth } = require('./firebase');
     firebaseAuth = getFirebaseAuth();
@@ -193,6 +198,13 @@ async function syncPendingChanges() {
 
 // Create a new game
 export async function createGame(gameData: Omit<Game, 'id' | 'createdAt' | 'ownerId' | 'ownerEmail'>): Promise<string> {
+  // Skip Firebase operations during build time
+  if (isBuildTime) {
+    console.log('Skipping Firebase operations during build time');
+    // Return a mock ID for build time
+    return 'build-time-mock-id';
+  }
+
   if (!getFirebaseAuth()?.currentUser) {
     throw new Error('User must be authenticated to create a game');
   }
@@ -375,8 +387,18 @@ export async function createGame(gameData: Omit<Game, 'id' | 'createdAt' | 'owne
   }
 }
 
-// Load a specific game
+// Load a game by ID
 export async function loadGame(gameId: string): Promise<Game | null> {
+  // Skip Firebase operations during build time
+  if (isBuildTime) {
+    console.log('Skipping Firebase operations during build time');
+    return null;
+  }
+
+  if (!getFirebaseAuth()?.currentUser) {
+    return null;
+  }
+
   try {
     // Check if user is anonymous (guest)
     if (getFirebaseAuth()?.currentUser?.isAnonymous) {
@@ -879,6 +901,12 @@ export async function deleteGame(gameId: string): Promise<boolean> {
 
 // Get completed games
 export async function getCompletedGames(): Promise<GameSummary[]> {
+  // Skip Firebase operations during build time
+  if (isBuildTime) {
+    console.log('Skipping Firebase operations during build time');
+    return [];
+  }
+
   if (!getFirebaseAuth()?.currentUser) {
     return [];
   }
