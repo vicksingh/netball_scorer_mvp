@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState, Suspense } from "react";
+import { useEffect, useRef, useState, Suspense, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "../../contexts/AuthContext";
 import { loadGame, updateGame } from "../../lib/firebase-utils";
@@ -221,7 +221,7 @@ function GamePageContent() {
 
       if (elapsed >= expectedDuration + graceMs) {
         console.log('Phase expired (after grace), advancing to next phase');
-        advancePhase();
+        // We'll handle phase advancement in a separate effect after advancePhase is defined
       }
     }
   }, [isExpired, game?.state?.isRunning, game?.state?.phaseStartedAt, game?.state?.phase, game?.settings]);
@@ -549,7 +549,7 @@ function GamePageContent() {
     if (updatedGame) setGame(updatedGame);
   }
 
-  function advancePhase() {
+  const advancePhase = useCallback(() => {
     console.log('advancePhase called, current phase:', state.phase);
     const np = nextPhase(state.phase, settings);
     console.log('Next phase:', np);
@@ -570,7 +570,26 @@ function GamePageContent() {
     });
     console.log('Updated game for advance:', updatedGame);
     if (updatedGame) setGame(updatedGame);
-  }
+  }, [id, state, settings]);
+
+  // Handle phase advancement after advancePhase is defined
+  useEffect(() => {
+    if (isExpired && game?.state?.isRunning && game?.state?.phaseStartedAt) {
+      // Use zero grace for final quarter so it advances immediately
+      const isFinalQuarter =
+        game.state.phase?.type === "quarter" &&
+        game.state.phase?.index === game.settings?.numQuarters;
+      const graceMs = isFinalQuarter ? 0 : 5000; // 5s grace otherwise
+      const startedAt = new Date(game.state.phaseStartedAt).getTime();
+      const elapsed = Date.now() - startedAt;
+      const expectedDuration = (game?.state?.phase && game?.settings) ? phaseDurationMs(game.state.phase, game.settings) : 0;
+
+      if (elapsed >= expectedDuration + graceMs) {
+        console.log('Phase expired (after grace), advancing to next phase');
+        advancePhase();
+      }
+    }
+  }, [isExpired, game?.state?.isRunning, game?.state?.phaseStartedAt, game?.state?.phase, game?.settings, advancePhase]);
 
   const shareUrl = typeof window !== "undefined" ? `${window.location.origin}/view/${id}` : "";
 
