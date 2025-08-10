@@ -14,7 +14,8 @@ import {
   enableNetwork,
   disableNetwork
 } from 'firebase/firestore';
-import { db, auth } from './firebase';
+// Remove top-level Firebase imports to prevent build-time errors
+// import { db, auth } from './firebase';
 import { 
   saveGuestGame, 
   loadGuestGame, 
@@ -42,6 +43,26 @@ import {
   upgradeGuestGameToHybrid,
   HybridGuestGame
 } from './guest-storage';
+
+// Lazy Firebase imports
+let firebaseDb: any = null;
+let firebaseAuth: any = null;
+
+const getFirebaseDB = () => {
+  if (!firebaseDb) {
+    const { getFirebaseDB } = require('./firebase');
+    firebaseDb = getFirebaseDB();
+  }
+  return firebaseDb;
+};
+
+const getFirebaseAuth = () => {
+  if (!firebaseAuth) {
+    const { getFirebaseAuth } = require('./firebase');
+    firebaseAuth = getFirebaseAuth();
+  }
+  return firebaseAuth;
+};
 
 // Types
 export interface Game {
@@ -109,7 +130,7 @@ async function checkFirebaseConnection(): Promise<boolean> {
     if (!isOnline) return false;
     
     // Try a simple Firebase operation
-    const testDoc = doc(db, '_test_connection', 'test');
+    const testDoc = doc(getFirebaseDB(), '_test_connection', 'test');
     await setDoc(testDoc, { timestamp: serverTimestamp() }, { merge: true });
     await deleteDoc(testDoc);
     isFirebaseConnected = true;
@@ -123,7 +144,7 @@ async function checkFirebaseConnection(): Promise<boolean> {
 
 // Sync pending changes when back online
 async function syncPendingChanges() {
-  if (!auth.currentUser || auth.currentUser.isAnonymous) return;
+  if (!getFirebaseAuth()?.currentUser || getFirebaseAuth()?.currentUser.isAnonymous) return;
   
   try {
     const pendingChanges = getSyncQueue();
@@ -134,13 +155,13 @@ async function syncPendingChanges() {
     for (const change of pendingChanges) {
       try {
         if (change.type === 'update') {
-          await updateDoc(doc(db, 'games', change.gameId), {
+          await updateDoc(doc(getFirebaseDB(), 'games', change.gameId), {
             ...change.updates,
             lastSyncedAt: serverTimestamp(),
             version: (change.version || 0) + 1,
           });
         } else if (change.type === 'create') {
-          await setDoc(doc(db, 'games', change.gameId), {
+          await setDoc(doc(getFirebaseDB(), 'games', change.gameId), {
             ...change.gameData,
             lastSyncedAt: serverTimestamp(),
             version: 1,
@@ -172,14 +193,14 @@ async function syncPendingChanges() {
 
 // Create a new game
 export async function createGame(gameData: Omit<Game, 'id' | 'createdAt' | 'ownerId' | 'ownerEmail'>): Promise<string> {
-  if (!auth.currentUser) {
+  if (!getFirebaseAuth()?.currentUser) {
     throw new Error('User must be authenticated to create a game');
   }
 
   const gameId = Date.now().toString();
   
   // Check if user is anonymous (guest)
-  if (auth.currentUser.isAnonymous) {
+  if (getFirebaseAuth()?.currentUser.isAnonymous) {
     // For guest users: Create hybrid game (local + Firebase) if sharing is enabled
     if (gameData.sharePublic) {
       // Create hybrid guest game
@@ -214,7 +235,7 @@ export async function createGame(gameData: Omit<Game, 'id' | 'createdAt' | 'owne
             version: 1,
           };
           
-          await setDoc(doc(db, 'games', gameId), firebaseGame);
+          await setDoc(doc(getFirebaseDB(), 'games', gameId), firebaseGame);
           
           // Update local game with sync confirmation
           updateHybridGuestGame(gameId, { lastSyncedAt: Date.now() });
@@ -285,8 +306,8 @@ export async function createGame(gameData: Omit<Game, 'id' | 'createdAt' | 'owne
       ...gameData,
       id: gameId,
       createdAt: serverTimestamp() as Timestamp,
-      ownerId: auth.currentUser.uid,
-      ownerEmail: auth.currentUser.email || 'unknown',
+      ownerId: getFirebaseAuth()?.currentUser.uid,
+      ownerEmail: getFirebaseAuth()?.currentUser.email || 'unknown',
       lastSyncedAt: Date.now(),
       version: 1,
     };
@@ -296,8 +317,8 @@ export async function createGame(gameData: Omit<Game, 'id' | 'createdAt' | 'owne
       ...gameData,
       id: gameId,
       createdAt: Date.now(),
-      ownerId: auth.currentUser.uid,
-      ownerEmail: auth.currentUser.email || 'unknown',
+      ownerId: getFirebaseAuth()?.currentUser.uid,
+      ownerEmail: getFirebaseAuth()?.currentUser.email || 'unknown',
       lastSyncedAt: Date.now(),
       version: 1,
     };
@@ -308,7 +329,7 @@ export async function createGame(gameData: Omit<Game, 'id' | 'createdAt' | 'owne
     try {
       const firebaseConnected = await checkFirebaseConnection();
       if (firebaseConnected) {
-        await setDoc(doc(db, 'games', gameId), game);
+        await setDoc(doc(getFirebaseDB(), 'games', gameId), game);
         
         // Also save to games collection for easy querying
         const gameSummary: GameSummary = {
@@ -322,7 +343,7 @@ export async function createGame(gameData: Omit<Game, 'id' | 'createdAt' | 'owne
           ownerEmail: game.ownerEmail,
         };
         
-        await setDoc(doc(db, 'games', gameId), gameSummary, { merge: true });
+        await setDoc(doc(getFirebaseDB(), 'games', gameId), gameSummary, { merge: true });
         
         // Update local game with sync confirmation
         updateLocalGame(gameId, { lastSyncedAt: Date.now() });
@@ -358,7 +379,7 @@ export async function createGame(gameData: Omit<Game, 'id' | 'createdAt' | 'owne
 export async function loadGame(gameId: string): Promise<Game | null> {
   try {
     // Check if user is anonymous (guest)
-    if (auth.currentUser?.isAnonymous) {
+    if (getFirebaseAuth()?.currentUser?.isAnonymous) {
       // First try to load hybrid guest game
       let hybridGuestGame = loadHybridGuestGame(gameId);
       
@@ -369,7 +390,7 @@ export async function loadGame(gameId: string): Promise<Game | null> {
         
         if (shouldSync) {
           try {
-            const firebaseGame = await getDoc(doc(db, 'games', gameId));
+            const firebaseGame = await getDoc(doc(getFirebaseDB(), 'games', gameId));
             if (firebaseGame.exists()) {
               const fbData = firebaseGame.data() as Game;
               
@@ -444,7 +465,7 @@ export async function loadGame(gameId: string): Promise<Game | null> {
         
         if (shouldSync) {
           try {
-            const firebaseGame = await getDoc(doc(db, 'games', gameId));
+            const firebaseGame = await getDoc(doc(getFirebaseDB(), 'games', gameId));
             if (firebaseGame.exists()) {
               const fbData = firebaseGame.data() as Game;
               
@@ -480,7 +501,7 @@ export async function loadGame(gameId: string): Promise<Game | null> {
       
       // If not found locally, try Firebase
       try {
-        const gameDoc = await getDoc(doc(db, 'games', gameId));
+        const gameDoc = await getDoc(doc(getFirebaseDB(), 'games', gameId));
         if (gameDoc.exists()) {
           const firebaseGame = gameDoc.data() as Game;
           
@@ -511,7 +532,7 @@ export async function loadGame(gameId: string): Promise<Game | null> {
 export async function updateGame(gameId: string, updates: Partial<Game>): Promise<Game | null> {
   try {
     // Check if user is anonymous (guest)
-    if (auth.currentUser?.isAnonymous) {
+    if (getFirebaseAuth()?.currentUser?.isAnonymous) {
       // First try to update hybrid guest game
       let hybridGuestGame = loadHybridGuestGame(gameId);
       
@@ -536,7 +557,7 @@ export async function updateGame(gameId: string, updates: Partial<Game>): Promis
         try {
           const firebaseConnected = await checkFirebaseConnection();
           if (firebaseConnected) {
-            const gameRef = doc(db, 'games', gameId);
+            const gameRef = doc(getFirebaseDB(), 'games', gameId);
             await updateDoc(gameRef, {
               ...updates,
               lastSyncedAt: serverTimestamp(),
@@ -632,7 +653,7 @@ export async function updateGame(gameId: string, updates: Partial<Game>): Promis
       try {
         const firebaseConnected = await checkFirebaseConnection();
         if (firebaseConnected) {
-          const gameRef = doc(db, 'games', gameId);
+          const gameRef = doc(getFirebaseDB(), 'games', gameId);
           await updateDoc(gameRef, {
             ...updates,
             lastSyncedAt: serverTimestamp(),
@@ -677,13 +698,13 @@ export async function updateGame(gameId: string, updates: Partial<Game>): Promis
 
 // Get all games for a user
 export async function getUserGames(): Promise<GameSummary[]> {
-  if (!auth.currentUser) {
+  if (!getFirebaseAuth()?.currentUser) {
     return [];
   }
 
   try {
     // Check if user is anonymous (guest)
-    if (auth.currentUser.isAnonymous) {
+    if (getFirebaseAuth()?.currentUser.isAnonymous) {
       const guestGames = getGuestGamesList();
       // Convert GuestGameSummary to GameSummary format for compatibility
       return guestGames.map(game => ({
@@ -699,8 +720,8 @@ export async function getUserGames(): Promise<GameSummary[]> {
       // Try to get from Firebase to ensure we have the latest data
       try {
         const gamesQuery = query(
-          collection(db, 'games'),
-          where('ownerId', '==', auth.currentUser.uid),
+          collection(getFirebaseDB(), 'games'),
+          where('ownerId', '==', getFirebaseAuth()?.currentUser.uid),
           orderBy('createdAt', 'desc')
         );
         
@@ -775,8 +796,8 @@ export async function getUserGames(): Promise<GameSummary[]> {
         return localGames.map(game => ({
           ...game,
           createdAt: { toDate: () => new Date(game.createdAt) } as any,
-          ownerId: auth.currentUser.uid,
-          ownerEmail: auth.currentUser.email || 'unknown',
+          ownerId: getFirebaseAuth()?.currentUser.uid,
+          ownerEmail: getFirebaseAuth()?.currentUser.email || 'unknown',
         }));
       }
     }
@@ -790,7 +811,7 @@ export async function getUserGames(): Promise<GameSummary[]> {
 export async function getPublicGame(gameId: string): Promise<Game | null> {
   try {
     // First try to get from Firebase
-    const gameDoc = await getDoc(doc(db, 'games', gameId));
+    const gameDoc = await getDoc(doc(getFirebaseDB(), 'games', gameId));
     if (gameDoc.exists()) {
       const game = gameDoc.data() as Game;
       if (game.sharePublic) {
@@ -821,13 +842,13 @@ export async function getPublicGame(gameId: string): Promise<Game | null> {
 
 // Delete a game
 export async function deleteGame(gameId: string): Promise<boolean> {
-  if (!auth.currentUser) {
+  if (!getFirebaseAuth()?.currentUser) {
     return false;
   }
 
   try {
     // Check if user is anonymous (guest)
-    if (auth.currentUser.isAnonymous) {
+    if (getFirebaseAuth()?.currentUser.isAnonymous) {
       // Check if user owns the game (for guest, this means it exists in their local storage)
       const game = loadGuestGame(gameId);
       if (game) {
@@ -838,12 +859,12 @@ export async function deleteGame(gameId: string): Promise<boolean> {
       // For registered users: Delete from BOTH local storage AND Firebase
       // Check if user owns the game in Firebase
       const game = await loadGame(gameId);
-      if (!game || game.ownerId !== auth.currentUser.uid) {
+      if (!game || game.ownerId !== getFirebaseAuth()?.currentUser.uid) {
         return false;
       }
 
       // Delete from Firebase
-      await deleteDoc(doc(db, 'games', gameId));
+      await deleteDoc(doc(getFirebaseDB(), 'games', gameId));
       
       // Delete from local storage
       deleteLocalGame(gameId);
@@ -858,13 +879,13 @@ export async function deleteGame(gameId: string): Promise<boolean> {
 
 // Get completed games
 export async function getCompletedGames(): Promise<GameSummary[]> {
-  if (!auth.currentUser) {
+  if (!getFirebaseAuth()?.currentUser) {
     return [];
   }
 
   try {
     // Check if user is anonymous (guest)
-    if (auth.currentUser.isAnonymous) {
+    if (getFirebaseAuth()?.currentUser.isAnonymous) {
       const completedGuestGames = getCompletedGuestGames();
       // Convert GuestGameSummary to GameSummary format for compatibility
       return completedGuestGames.map(game => ({
@@ -881,8 +902,8 @@ export async function getCompletedGames(): Promise<GameSummary[]> {
       return completedLocalGames.map(game => ({
         ...game,
         createdAt: { toDate: () => new Date(game.createdAt) } as any,
-        ownerId: auth.currentUser.uid,
-        ownerEmail: auth.currentUser.email || 'unknown',
+        ownerId: getFirebaseAuth()?.currentUser.uid,
+        ownerEmail: getFirebaseAuth()?.currentUser.email || 'unknown',
       }));
     }
   } catch (error) {

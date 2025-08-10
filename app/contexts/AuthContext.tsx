@@ -10,8 +10,20 @@ import {
   signInAnonymously,
   updateProfile
 } from 'firebase/auth';
-import { auth } from '../lib/firebase';
+// Remove top-level Firebase import to prevent build-time errors
+// import { auth } from '../lib/firebase';
 import { clearGuestData } from '../lib/guest-storage';
+
+// Lazy Firebase auth import
+let firebaseAuth: any = null;
+
+const getFirebaseAuth = () => {
+  if (!firebaseAuth) {
+    const { getFirebaseAuth } = require('../lib/firebase');
+    firebaseAuth = getFirebaseAuth();
+  }
+  return firebaseAuth;
+};
 
 interface AuthContextType {
   user: User | null;
@@ -41,7 +53,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const unsubscribe = onAuthStateChanged(getFirebaseAuth(), (user) => {
       setUser(user);
       setLoading(false);
     });
@@ -51,7 +63,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const signIn = async (email: string, password: string) => {
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      await signInWithEmailAndPassword(getFirebaseAuth(), email, password);
     } catch (error) {
       console.error('Sign in error:', error);
       throw error;
@@ -60,7 +72,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const signUp = async (email: string, password: string, firstName: string) => {
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const userCredential = await createUserWithEmailAndPassword(getFirebaseAuth(), email, password);
       const user = userCredential.user;
       
       // Store firstName in user profile
@@ -75,7 +87,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const signInAsGuest = async () => {
     try {
-      await signInAnonymously(auth);
+      await signInAnonymously(getFirebaseAuth());
     } catch (error) {
       console.error('Guest sign in error:', error);
       throw error;
@@ -85,11 +97,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const logout = async () => {
     try {
       // If user is anonymous, clear local guest data
-      if (auth.currentUser?.isAnonymous) {
+      if (getFirebaseAuth()?.currentUser?.isAnonymous) {
         clearGuestData();
       }
       
-      await signOut(auth);
+      await signOut(getFirebaseAuth());
     } catch (error) {
       console.error('Logout error:', error);
       throw error;

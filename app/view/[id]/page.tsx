@@ -4,8 +4,20 @@ import { useParams } from "next/navigation";
 import { msToClock, nowMs, phaseDurationMs } from "../../lib/local-utils";
 import { getPublicGame } from "../../lib/firebase-utils";
 import { onSnapshot, doc, enableNetwork, disableNetwork } from 'firebase/firestore';
-import { db } from "../../lib/firebase";
+// Remove top-level Firebase import to prevent build-time errors
+// import { db } from "../../lib/firebase";
 import { loadGuestGame, loadHybridGuestGame } from "../../lib/guest-storage";
+
+// Lazy Firebase db import
+let firebaseDb: any = null;
+
+const getFirebaseDB = () => {
+  if (!firebaseDb) {
+    const { getFirebaseDB } = require('../../lib/firebase');
+    firebaseDb = getFirebaseDB();
+  }
+  return firebaseDb;
+};
 
 export default function ViewGamePage() {
   const { id } = useParams<{id: string}>();
@@ -112,9 +124,9 @@ export default function ViewGamePage() {
         // For hybrid guest games, use Firebase real-time updates + local polling for immediate updates
         try {
           // Enable Firebase network for real-time updates
-          enableNetwork(db);
+          enableNetwork(getFirebaseDB());
           
-          unsubscribeRef.current = onSnapshot(doc(db, 'games', id), (doc) => {
+          unsubscribeRef.current = onSnapshot(doc(getFirebaseDB(), 'games', id), (doc) => {
             if (doc.exists() && isMounted) {
               const gameData = doc.data();
               if (gameData.sharePublic) {
@@ -150,9 +162,9 @@ export default function ViewGamePage() {
         } else {
           // For Firebase games, use real-time listener
           try {
-            enableNetwork(db);
+            enableNetwork(getFirebaseDB());
             
-            unsubscribeRef.current = onSnapshot(doc(db, 'games', id), (doc) => {
+            unsubscribeRef.current = onSnapshot(doc(getFirebaseDB(), 'games', id), (doc) => {
               if (doc.exists() && isMounted) {
                 const gameData = doc.data();
                 if (gameData.sharePublic) {
@@ -218,7 +230,7 @@ export default function ViewGamePage() {
         localPollingRef.current = null;
       }
       // Disable Firebase network when component unmounts
-      disableNetwork(db);
+      disableNetwork(getFirebaseDB());
     };
   }, [id]);
 
