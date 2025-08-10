@@ -370,8 +370,13 @@ function GamePageContent() {
       if (updatedGame) {
         const mergedGame = { 
           ...updatedGame, 
-          ...updates,
-          state: updates.state ? { ...updatedGame.state, ...updates.state } : updatedGame.state
+          // Only merge specific fields, not the entire updates object
+          ...(updates.state && { state: { ...updatedGame.state, ...updates.state } }),
+          ...(updates.teamA && { teamA: updates.teamA }),
+          ...(updates.teamB && { teamB: updates.teamB }),
+          ...(updates.settings && { settings: updates.settings }),
+          ...(updates.sharePublic !== undefined && { sharePublic: updates.sharePublic }),
+          ...(updates.location !== undefined && { location: updates.location }),
         };
         // Use the hybrid update method if available, otherwise fall back to local
         if (typeof updateHybridGuestGame === 'function') {
@@ -384,7 +389,16 @@ function GamePageContent() {
       }
     } else {
       // For registered users: immediate local update + background Firebase sync
-      updatedGame = { ...game, ...updates };
+      updatedGame = { 
+        ...game, 
+        // Only merge specific fields, not the entire updates object
+        ...(updates.state && { state: { ...game.state, ...updates.state } }),
+        ...(updates.teamA && { teamA: updates.teamA }),
+        ...(updates.teamB && { teamB: updates.teamB }),
+        ...(updates.settings && { settings: updates.settings }),
+        ...(updates.sharePublic !== undefined && { sharePublic: updates.sharePublic }),
+        ...(updates.location !== undefined && { location: updates.location }),
+      };
       if (updatedGame) {
         // Update local state immediately
         setGame(updatedGame);
@@ -402,6 +416,15 @@ function GamePageContent() {
         return updatedGame;
       }
     }
+    
+    // Debug: log the final updated game to see what we're returning
+    console.log('updateGameOptimized returning:', {
+      hasState: !!updatedGame?.state,
+      stateKeys: updatedGame?.state ? Object.keys(updatedGame.state) : 'NO STATE',
+      statePhase: updatedGame?.state?.phase,
+      stateScores: updatedGame?.state?.scores,
+      stateIsRunning: updatedGame?.state?.isRunning,
+    });
     
     return updatedGame;
   };
