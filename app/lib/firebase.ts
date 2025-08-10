@@ -1,4 +1,4 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getAnalytics } from 'firebase/analytics';
@@ -27,34 +27,48 @@ const validateFirebaseConfig = () => {
     .map(([key]) => key);
 
   if (missingVars.length > 0) {
-    throw new Error(
+    console.warn(
       `Missing required Firebase environment variables: ${missingVars.join(', ')}\n` +
       'Please create a .env.local file with the required Firebase configuration.'
     );
+    return false;
   }
 
   return true;
 };
 
-// Initialize Firebase only if we have the required config
-let app: any = null;
+// Global variables to track Firebase instances
+let app: FirebaseApp | null = null;
 let authInstance: any = null;
 let dbInstance: any = null;
 let analyticsInstance: any = null;
+let isInitializing = false;
 
-const initializeFirebase = () => {
-  if (app) return { app, auth: authInstance, db: dbInstance, analytics: analyticsInstance };
+const initializeFirebase = (): { app: FirebaseApp | null; auth: any; db: any; analytics: any } => {
+  // Prevent multiple simultaneous initializations
+  if (isInitializing) {
+    console.log('Firebase initialization already in progress, waiting...');
+    return { app: null, auth: null, db: null, analytics: null };
+  }
+
+  // Check if Firebase is already initialized
+  if (app && authInstance && dbInstance) {
+    return { app, auth: authInstance, db: dbInstance, analytics: analyticsInstance };
+  }
+
+  // Skip initialization during build time
+  if (isBuildTime) {
+    console.log('Skipping Firebase initialization during build time');
+    return { app: null, auth: null, db: null, analytics: null };
+  }
+
+  isInitializing = true;
 
   try {
-    // Skip initialization during build time
-    if (isBuildTime) {
-      console.log('Skipping Firebase initialization during build time');
-      return { app: null, auth: null, db: null, analytics: null };
-    }
-
     const isValid = validateFirebaseConfig();
     if (!isValid) {
       console.log('Firebase config validation failed, skipping initialization');
+      isInitializing = false;
       return { app: null, auth: null, db: null, analytics: null };
     }
 
@@ -68,25 +82,77 @@ const initializeFirebase = () => {
       measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
     };
 
-    app = initializeApp(firebaseConfig);
-    authInstance = getAuth(app);
-    dbInstance = getFirestore(app);
+    // Check for existing apps with the same config
+    const existingApps = getApps();
+    const existingApp = existingApps.find(existingApp => 
+      existingApp.options.projectId === firebaseConfig.projectId &&
+      existingApp.options.appId === firebaseConfig.appId
+    );
 
-    // Initialize Analytics (only in browser environment)
-    if (typeof window !== 'undefined') {
+    if (existingApp) {
+      // Use existing app
+      console.log('Using existing Firebase app');
+      app = existingApp;
+    } else {
+      // Create new app with unique name to avoid conflicts
       try {
-        analyticsInstance = getAnalytics(app);
-      } catch (error) {
-        console.log('Analytics not available:', error);
+        const appName = `netball-scorer-${Date.now()}`;
+        app = initializeApp(firebaseConfig, appName);
+        console.log('Firebase app initialized successfully');
+      } catch (error: any) {
+        if (error.code === 'app/duplicate-app') {
+          // Handle duplicate app error by using existing app
+          console.log('Duplicate app detected, using existing app');
+          const existingApps = getApps();
+          if (existingApps.length > 0) {
+            app = existingApps[0];
+          } else {
+            throw new Error('Failed to initialize Firebase: No existing apps found');
+          }
+        } else {
+          throw error;
+        }
       }
     }
+
+    // Initialize services
+    if (app) {
+      try {
+        authInstance = getAuth(app);
+        dbInstance = getFirestore(app);
+        
+        // Initialize Analytics (only in browser environment)
+        if (typeof window !== 'undefined' && !analyticsInstance) {
+          try {
+            analyticsInstance = getAnalytics(app);
+          } catch (error) {
+            console.log('Analytics not available:', error);
+          }
+        }
+        
+        console.log('Firebase services initialized successfully');
+      } catch (error) {
+        console.error('Failed to initialize Firebase services:', error);
+        // Reset instances on failure
+        app = null;
+        authInstance = null;
+        dbInstance = null;
+        analyticsInstance = null;
+      }
+    }
+
+    isInitializing = false;
+    return { app, auth: authInstance, db: dbInstance, analytics: analyticsInstance };
   } catch (error) {
     console.error('Firebase initialization failed:', error);
-    // Return null values so the app can still function
+    isInitializing = false;
+    // Reset instances on failure
+    app = null;
+    authInstance = null;
+    dbInstance = null;
+    analyticsInstance = null;
     return { app: null, auth: null, db: null, analytics: null };
   }
-
-  return { app, auth: authInstance, db: dbInstance, analytics: analyticsInstance };
 };
 
 // Export functions that initialize Firebase when called

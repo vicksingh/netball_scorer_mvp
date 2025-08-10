@@ -60,16 +60,21 @@ export default function ViewGamePage() {
     // First try to load from Firebase for real-time updates
     const loadGameFromFirebase = async () => {
       try {
+        console.log(`Attempting to load game ${id} from Firebase...`);
         const loadedGame = await getPublicGame(id);
         if (loadedGame && isMounted) {
+          console.log('Game loaded successfully from Firebase');
           updateGameState(loadedGame, 'firebase');
           setLoading(false);
           return; // Found in Firebase, no need to check local storage
         }
         
+        console.log('Game not found in Firebase, checking local storage...');
+        
         // If not found in Firebase, try local storage for guest games
         const hybridGuestGame = loadHybridGuestGame(id);
         if (hybridGuestGame && hybridGuestGame.sharePublic) {
+          console.log('Found hybrid guest game in local storage');
           updateGameState(hybridGuestGame, 'hybrid');
           setLoading(false);
           isHybridGameRef.current = true;
@@ -79,12 +84,14 @@ export default function ViewGamePage() {
         // Try regular guest game as fallback
         const guestGame = loadGuestGame(id);
         if (guestGame && guestGame.sharePublic) {
+          console.log('Found regular guest game in local storage');
           updateGameState(guestGame, 'local');
           setLoading(false);
           return; // Found in local storage
         }
         
         // Game not found anywhere
+        console.log('Game not found in Firebase or local storage');
         if (isMounted) {
           setGameNotFound(true);
           setLoading(false);
@@ -92,9 +99,27 @@ export default function ViewGamePage() {
       } catch (error) {
         console.error('Error loading game from Firebase:', error);
         
+        // Log specific error details for debugging
+        if (error instanceof Error) {
+          if (error.message.includes('Target ID already exists')) {
+            console.error('Firebase "Target ID already exists" error detected. This usually means:');
+            console.error('1. Multiple Firebase app instances are running');
+            console.error('2. Firebase configuration conflict');
+            console.error('3. Firebase app initialization issue');
+            console.error('4. Firebase rules preventing access');
+          } else if (error.message.includes('permission-denied')) {
+            console.error('Firebase permission denied. Check security rules.');
+          } else if (error.message.includes('not-found')) {
+            console.error('Game document not found in Firebase.');
+          }
+        }
+        
+        console.log('Falling back to local storage due to Firebase error...');
+        
         // Try local storage as fallback
         const hybridGuestGame = loadHybridGuestGame(id);
         if (hybridGuestGame && hybridGuestGame.sharePublic && isMounted) {
+          console.log('Found hybrid guest game in local storage as fallback');
           updateGameState(hybridGuestGame, 'hybrid');
           setLoading(false);
           isHybridGameRef.current = true;
@@ -103,11 +128,13 @@ export default function ViewGamePage() {
         
         const guestGame = loadGuestGame(id);
         if (guestGame && guestGame.sharePublic && isMounted) {
+          console.log('Found regular guest game in local storage as fallback');
           updateGameState(guestGame, 'local');
           setLoading(false);
           return;
         }
         
+        console.log('Game not found in local storage either');
         if (isMounted) {
           setGameNotFound(true);
           setLoading(false);

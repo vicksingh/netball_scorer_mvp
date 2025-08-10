@@ -55,9 +55,21 @@ interface AuthProviderProps {
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(getFirebaseAuth(), (user) => {
+    setMounted(true);
+    // Only initialize Firebase auth on the client side
+    if (typeof window === 'undefined') return;
+    
+    const auth = getFirebaseAuth();
+    if (!auth) {
+      console.warn('Firebase auth not available');
+      setLoading(false);
+      return;
+    }
+
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user);
       setLoading(false);
     });
@@ -65,9 +77,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return unsubscribe;
   }, []);
 
+  // Don't render children until mounted to prevent hydration mismatch
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-900 via-blue-800 to-purple-900 flex items-center justify-center">
+        <div className="text-white text-xl">Loading...</div>
+      </div>
+    );
+  }
+
   const signIn = async (email: string, password: string) => {
     try {
-      await signInWithEmailAndPassword(getFirebaseAuth(), email, password);
+      const auth = getFirebaseAuth();
+      if (!auth) throw new Error('Firebase auth not available');
+      await signInWithEmailAndPassword(auth, email, password);
     } catch (error) {
       console.error('Sign in error:', error);
       throw error;
@@ -76,7 +99,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const signUp = async (email: string, password: string, firstName: string) => {
     try {
-      const userCredential = await createUserWithEmailAndPassword(getFirebaseAuth(), email, password);
+      const auth = getFirebaseAuth();
+      if (!auth) throw new Error('Firebase auth not available');
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
       
       // Store firstName in user profile
@@ -91,7 +116,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const signInAsGuest = async () => {
     try {
-      await signInAnonymously(getFirebaseAuth());
+      const auth = getFirebaseAuth();
+      if (!auth) throw new Error('Firebase auth not available');
+      await signInAnonymously(auth);
     } catch (error) {
       console.error('Guest sign in error:', error);
       throw error;
@@ -100,12 +127,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const logout = async () => {
     try {
+      const auth = getFirebaseAuth();
+      if (!auth) throw new Error('Firebase auth not available');
+      
       // If user is anonymous, clear local guest data
-      if (getFirebaseAuth()?.currentUser?.isAnonymous) {
+      if (auth.currentUser?.isAnonymous) {
         clearGuestData();
       }
       
-      await signOut(getFirebaseAuth());
+      await signOut(auth);
     } catch (error) {
       console.error('Logout error:', error);
       throw error;

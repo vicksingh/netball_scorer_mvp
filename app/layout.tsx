@@ -38,7 +38,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <AuthProvider>
           <div className="min-h-dvh flex flex-col">
             <div className="flex-1">{children}</div>
-            <footer className="fixed bottom-0 left-0 right-0 text-center py-2 text-xs text-white bg-black/60 backdrop-blur-sm border-t border-white/20 z-50">
+            <footer className="text-center py-2 text-xs text-white bg-gradient-to-r from-blue-900 to-purple-900 border-t border-white/20">
               ScoZo 4.0. Made in Adelaide
             </footer>
           </div>

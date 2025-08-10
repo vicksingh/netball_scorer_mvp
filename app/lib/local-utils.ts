@@ -10,8 +10,6 @@ export function msToClock(ms: number): string {
 }
 
 export function phaseDurationMs(phase: any, settings: any): number {
-  console.log('phaseDurationMs called with:', { phase, settings });
-  
   // Add null safety checks
   if (!phase || !settings) {
     console.warn('phaseDurationMs: Missing phase or settings:', { phase, settings });
@@ -20,14 +18,11 @@ export function phaseDurationMs(phase: any, settings: any): number {
   
   if (phase.type === "quarter") {
     const duration = settings.quarterDurationSec * 1000;
-    console.log('Quarter duration:', duration, 'ms');
     return duration;
   } else if (phase.type === "break") {
     const duration = settings.breakDurationsSec[phase.index - 1] * 1000;
-    console.log('Break duration:', duration, 'ms');
     return duration;
   }
-  console.log('Unknown phase type, returning 0');
   return 0;
 }
 

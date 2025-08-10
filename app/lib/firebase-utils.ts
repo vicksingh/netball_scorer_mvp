@@ -144,6 +144,16 @@ async function checkFirebaseConnection(): Promise<boolean> {
   try {
     if (!isOnline) return false;
     
+    // Skip if no auth or user is anonymous (guest users don't need Firebase)
+    if (!getFirebaseAuth()?.currentUser || getFirebaseAuth()?.currentUser.isAnonymous) {
+      // Only log in development mode
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Firebase connection check skipped: Guest user or no auth');
+      }
+      isFirebaseConnected = false;
+      return false;
+    }
+    
     const db = getFirebaseDB();
     if (!db) {
       console.warn('Firebase connection check failed: Database not available');
@@ -151,25 +161,104 @@ async function checkFirebaseConnection(): Promise<boolean> {
       return false;
     }
     
+    // Only log in development mode
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Testing Firebase connection...');
+    }
+    
+    // Try a simple Firebase operation with timeout
+    const testDoc = doc(db, '_test_connection', 'test');
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Firebase connection timeout')), 5000)
+    );
+    
+    const testPromise = Promise.all([
+      setDoc(testDoc, { timestamp: serverTimestamp() }, { merge: true }),
+      deleteDoc(testDoc)
+    ]);
+    
+    await Promise.race([testPromise, timeoutPromise]);
+    
+    // Only log in development mode
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Firebase connection test successful');
+    }
+    isFirebaseConnected = true;
+    return true;
+  } catch (error) {
+    // Only log as warning if it's a permissions issue, otherwise as info
+    if (error instanceof Error && (error.message.includes('Missing') || error.message.includes('insufficient permissions'))) {
+      console.info('Firebase connection check: Offline or permissions issue (expected for guest users)');
+    } else {
+      console.warn('Firebase connection check failed:', error);
+    }
+    isFirebaseConnected = false;
+    return false;
+  }
+}
+
+// Test Firebase connection with detailed error reporting
+export async function testFirebaseConnection(): Promise<boolean> {
+  try {
+    // Only log in development mode
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Testing Firebase connection...');
+    }
+    
+    if (!isOnline) {
+      // Only log in development mode
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Firebase connection test skipped: Offline');
+      }
+      return false;
+    }
+    
+    // Skip if no auth or user is anonymous (guest users don't need Firebase)
+    if (!getFirebaseAuth()?.currentUser || getFirebaseAuth()?.currentUser.isAnonymous) {
+      // Only log in development mode
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Firebase connection test skipped: Guest user');
+      }
+      return false;
+    }
+    
+    const db = getFirebaseDB();
+    if (!db) {
+      // Only log in development mode
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Firebase connection test failed: Database not available');
+      }
+      return false;
+    }
+    
     // Try a simple Firebase operation
     const testDoc = doc(db, '_test_connection', 'test');
     await setDoc(testDoc, { timestamp: serverTimestamp() }, { merge: true });
     await deleteDoc(testDoc);
-    isFirebaseConnected = true;
+    
+    // Only log in development mode
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Firebase connection test successful');
+    }
     return true;
   } catch (error) {
-    console.warn('Firebase connection check failed:', error);
-    isFirebaseConnected = false;
+    console.error('Firebase connection test failed:', error);
     
-    // Log specific error details for debugging
+    // Log specific error details for debugging (only for unexpected errors)
     if (error instanceof Error) {
-      if (error.message.includes('Missing') || error.message.includes('insufficient permissions')) {
-        console.error('Firebase script or permissions issue detected. Please check:');
-        console.error('1. Firebase project configuration');
-        console.error('2. Domain authorization in Firebase console');
-        console.error('3. Environment variables');
+      if (error.message.includes('Target ID already exists')) {
+        console.warn('Firebase "Target ID already exists" error. This indicates:');
+        console.warn('1. Multiple Firebase app instances are running');
+        console.warn('2. Firebase configuration conflict');
+        console.warn('3. Firebase app initialization issue');
+        console.warn('4. Firebase rules preventing access');
+      } else if (error.message.includes('Missing') || error.message.includes('insufficient permissions')) {
+        // Don't log this as error for guest users - it's expected
+        console.info('Firebase permissions issue (expected for guest users)');
       } else if (error.message.includes('400')) {
-        console.error('Firebase Bad Request (400) - check request format and permissions');
+        console.warn('Firebase Bad Request (400) - check request format and permissions');
+      } else if (error.message.includes('permission-denied')) {
+        console.warn('Firebase permission denied - check security rules');
       }
     }
     
@@ -185,7 +274,10 @@ async function syncPendingChanges() {
     const pendingChanges = getSyncQueue();
     if (pendingChanges.length === 0) return;
     
-    console.log(`Syncing ${pendingChanges.length} pending changes...`);
+    // Only log in development mode
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`Syncing ${pendingChanges.length} pending changes...`);
+    }
     
     for (const change of pendingChanges) {
       try {
@@ -228,86 +320,41 @@ async function syncPendingChanges() {
 
 // Create a new game
 export async function createGame(gameData: Omit<Game, 'id' | 'createdAt' | 'ownerId' | 'ownerEmail'>): Promise<string> {
-  // Skip Firebase operations during build time
-  if (isBuildTime) {
-    console.log('Skipping Firebase operations during build time');
-    // Return a mock ID for build time
-    return 'build-time-mock-id';
-  }
+  try {
+    // Skip Firebase operations during build time
+    if (isBuildTime) {
+      console.log('Skipping Firebase operations during build time');
+      // Return a mock ID for build time
+      return 'build-time-mock-id';
+    }
 
-  if (!getFirebaseAuth()?.currentUser) {
-    throw new Error('User must be authenticated to create a game');
-  }
+    if (!getFirebaseAuth()?.currentUser) {
+      throw new Error('User must be authenticated to create a game');
+    }
 
-  const gameId = Date.now().toString();
-  
-  // Check if user is anonymous (guest)
-  if (getFirebaseAuth()?.currentUser.isAnonymous) {
-    // For guest users: Create hybrid game (local + Firebase) if sharing is enabled
-    if (gameData.sharePublic) {
-      // Create hybrid guest game
-      const hybridGuestGame: HybridGuestGame = {
-        ...gameData,
-        id: gameId,
-        createdAt: Date.now(),
-        deviceId: '', // Will be set by saveHybridGuestGame
-        firebaseId: gameId, // Use the same ID for Firebase
-        lastSyncedAt: Date.now(),
-        version: 1,
-        sharePublic: true,
-      };
-      
-      // Save locally first
-      saveHybridGuestGame(hybridGuestGame);
-      
-      // Try to save to Firebase for real-time sharing
-      try {
-        const firebaseConnected = await checkFirebaseConnection();
-        if (firebaseConnected) {
-          // Create Firebase document with device ID as owner
-          const firebaseGame = {
-            ...gameData,
-            id: gameId,
-            createdAt: serverTimestamp() as Timestamp,
-            ownerId: `guest_${hybridGuestGame.deviceId}`, // Use device ID as owner
-            ownerEmail: 'guest@local',
-            deviceId: hybridGuestGame.deviceId,
-            sharePublic: true,
-            lastSyncedAt: Date.now(),
-            version: 1,
-          };
-          
-          await setDoc(doc(getFirebaseDB(), 'games', gameId), firebaseGame);
-          
-          // Update local game with sync confirmation
-          updateHybridGuestGame(gameId, { lastSyncedAt: Date.now() });
-          console.log('Hybrid guest game created and synced to Firebase');
-        } else {
-          // Queue for sync when online
-          const firebaseGame = {
-            ...gameData,
-            id: gameId,
-            createdAt: Date.now(),
-            ownerId: `guest_${hybridGuestGame.deviceId}`,
-            ownerEmail: 'guest@local',
-            deviceId: hybridGuestGame.deviceId,
-            sharePublic: true,
-            lastSyncedAt: Date.now(),
-            version: 1,
-          };
-          
-          saveSyncQueue({
-            type: 'create',
-            gameId,
-            gameData: firebaseGame,
-            timestamp: Date.now(),
-            version: 1,
-          });
-          console.log('Hybrid guest game created locally, queued for Firebase sync');
-        }
-      } catch (error) {
-        console.warn('Failed to save to Firebase, queuing for sync:', error);
-        // Queue for sync when online
+    const gameId = Date.now().toString();
+    
+    // Check if user is anonymous (guest)
+    if (getFirebaseAuth()?.currentUser.isAnonymous) {
+      // For guest users: Create hybrid game (local + Firebase) if sharing is enabled
+      if (gameData.sharePublic) {
+        // Create hybrid guest game
+        const hybridGuestGame: HybridGuestGame = {
+          ...gameData,
+          id: gameId,
+          createdAt: Date.now(),
+          deviceId: '', // Will be set by saveHybridGuestGame
+          firebaseId: gameId, // Use the same ID for Firebase
+          lastSyncedAt: Date.now(),
+          version: 1,
+          sharePublic: true,
+        };
+        
+        // Save locally first
+        saveHybridGuestGame(hybridGuestGame);
+        
+        // For guest users, always queue for sync instead of trying immediate Firebase save
+        // This avoids permission issues and provides better offline experience
         const firebaseGame = {
           ...gameData,
           id: gameId,
@@ -327,70 +374,87 @@ export async function createGame(gameData: Omit<Game, 'id' | 'createdAt' | 'owne
           timestamp: Date.now(),
           version: 1,
         });
+        
+        // Only log in development mode
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Hybrid guest game created locally, queued for Firebase sync');
+        }
+      } else {
+        // Regular local-only guest game
+        const guestGame: GuestGame = {
+          ...gameData,
+          id: gameId,
+          createdAt: Date.now(),
+          deviceId: '', // Will be set by saveGuestGame
+          sharePublic: false,
+        };
+        
+        saveGuestGame(guestGame);
       }
+      
+      return gameId;
     } else {
-      // Regular local-only guest game
-      const guestGame: GuestGame = {
+      // For registered users: Save BOTH locally AND to Firebase
+      const game: Game = {
+        ...gameData,
+        id: gameId,
+        createdAt: serverTimestamp() as Timestamp,
+        ownerId: getFirebaseAuth()?.currentUser.uid,
+        ownerEmail: getFirebaseAuth()?.currentUser.email || 'unknown',
+        lastSyncedAt: Date.now(),
+        version: 1,
+      };
+
+      // Always save locally first for immediate access
+      const localGame = {
         ...gameData,
         id: gameId,
         createdAt: Date.now(),
-        deviceId: '', // Will be set by saveGuestGame
-        sharePublic: false,
+        ownerId: getFirebaseAuth()?.currentUser.uid,
+        ownerEmail: getFirebaseAuth()?.currentUser.email || 'unknown',
+        lastSyncedAt: Date.now(),
+        version: 1,
       };
       
-      saveGuestGame(guestGame);
-    }
-    
-    return gameId;
-  } else {
-    // For registered users: Save BOTH locally AND to Firebase
-    const game: Game = {
-      ...gameData,
-      id: gameId,
-      createdAt: serverTimestamp() as Timestamp,
-      ownerId: getFirebaseAuth()?.currentUser.uid,
-      ownerEmail: getFirebaseAuth()?.currentUser.email || 'unknown',
-      lastSyncedAt: Date.now(),
-      version: 1,
-    };
+      saveLocalGame(localGame);
 
-    // Always save locally first for immediate access
-    const localGame = {
-      ...gameData,
-      id: gameId,
-      createdAt: Date.now(),
-      ownerId: getFirebaseAuth()?.currentUser.uid,
-      ownerEmail: getFirebaseAuth()?.currentUser.email || 'unknown',
-      lastSyncedAt: Date.now(),
-      version: 1,
-    };
-    
-    saveLocalGame(localGame);
-
-    // Try to save to Firebase (cloud backup)
-    try {
-      const firebaseConnected = await checkFirebaseConnection();
-      if (firebaseConnected) {
-        await setDoc(doc(getFirebaseDB(), 'games', gameId), game);
-        
-        // Also save to games collection for easy querying
-        const gameSummary: GameSummary = {
-          id: gameId,
-          shortId: gameData.shortId,
-          teamA: gameData.teamA.name,
-          teamB: gameData.teamB.name,
-          createdAt: game.createdAt,
-          location: gameData.location,
-          ownerId: game.ownerId,
-          ownerEmail: game.ownerEmail,
-        };
-        
-        await setDoc(doc(getFirebaseDB(), 'games', gameId), gameSummary, { merge: true });
-        
-        // Update local game with sync confirmation
-        updateLocalGame(gameId, { lastSyncedAt: Date.now() });
-        console.log('Game created and synced to Firebase');
-      } else {
+      // Try to save to Firebase (cloud backup)
+      try {
+        const firebaseConnected = await checkFirebaseConnection();
+        if (firebaseConnected) {
+          await setDoc(doc(getFirebaseDB(), 'games', gameId), game);
+          
+          // Also save to games collection for easy querying
+          const gameSummary: GameSummary = {
+            id: gameId,
+            shortId: gameData.shortId,
+            teamA: gameData.teamA.name,
+            teamB: gameData.teamB.name,
+            createdAt: game.createdAt,
+            location: gameData.location,
+            ownerId: game.ownerId,
+            ownerEmail: game.ownerEmail,
+          };
+          
+          await setDoc(doc(getFirebaseDB(), 'games', gameId), gameSummary, { merge: true });
+          
+          // Update local game with sync confirmation
+          updateLocalGame(gameId, { lastSyncedAt: Date.now() });
+          console.log('Game created and synced to Firebase');
+        } else {
+          // Queue for sync when online
+          saveSyncQueue({
+            type: 'create',
+            gameId,
+            gameData: game,
+            timestamp: Date.now(),
+            version: 1,
+          });
+          console.log('Game created locally, queued for Firebase sync');
+        }
+      } catch (error) {
+        console.warn('Failed to save to Firebase, continuing with local storage only:', error);
+        // Continue with local storage only - don't fail the game creation
         // Queue for sync when online
         saveSyncQueue({
           type: 'create',
@@ -399,90 +463,41 @@ export async function createGame(gameData: Omit<Game, 'id' | 'createdAt' | 'owne
           timestamp: Date.now(),
           version: 1,
         });
-        console.log('Game created locally, queued for Firebase sync');
       }
-    } catch (error) {
-      console.warn('Failed to save to Firebase, queuing for sync:', error);
-      // Queue for sync when online
-      saveSyncQueue({
-        type: 'create',
-        gameId,
-        gameData: game,
-        timestamp: Date.now(),
-        version: 1,
-      });
+      
+      return gameId;
     }
-    
-    return gameId;
+  } catch (error) {
+    console.error('Error creating game:', error);
+    // Don't throw error, return a fallback ID and continue
+    const fallbackId = `fallback_${Date.now()}`;
+    console.log('Using fallback game ID:', fallbackId);
+    return fallbackId;
   }
 }
 
 // Load a game by ID
 export async function loadGame(gameId: string): Promise<Game | null> {
-  // Skip Firebase operations during build time
-  if (isBuildTime) {
-    console.log('Skipping Firebase operations during build time');
-    return null;
-  }
-
-  if (!getFirebaseAuth()?.currentUser) {
-    return null;
-  }
-
   try {
+    // Skip Firebase operations during build time
+    if (isBuildTime) {
+      console.log('Skipping Firebase operations during build time');
+      return null;
+    }
+
     // Check if user is anonymous (guest)
     if (getFirebaseAuth()?.currentUser?.isAnonymous) {
-      // First try to load hybrid guest game
-      let hybridGuestGame = loadHybridGuestGame(gameId);
+      // For guest users: Try hybrid guest game first, then regular guest game
+      let hybridGame = loadHybridGuestGame(gameId);
       
-      if (hybridGuestGame) {
-        // This is a hybrid guest game - try to sync with Firebase
-        const shouldSync = isOnline && isFirebaseConnected && 
-          (!hybridGuestGame.lastSyncedAt || Date.now() - hybridGuestGame.lastSyncedAt > 30000); // Sync if >30s old
-        
-        if (shouldSync) {
-          try {
-            const firebaseGame = await getDoc(doc(getFirebaseDB(), 'games', gameId));
-            if (firebaseGame.exists()) {
-              const fbData = firebaseGame.data() as Game;
-              
-              // Conflict resolution: use the more recent version
-              if (fbData.version && (!hybridGuestGame.version || fbData.version > hybridGuestGame.version)) {
-                console.log('Firebase has newer version, updating local hybrid guest game');
-                const updatedLocalGame: HybridGuestGame = {
-                  ...fbData,
-                  createdAt: fbData.createdAt?.toDate?.() ? fbData.createdAt.toDate().getTime() : Date.now(),
-                  lastSyncedAt: Date.now(),
-                  deviceId: hybridGuestGame.deviceId, // Preserve device ID
-                  firebaseId: gameId,
-                  version: fbData.version || 1,
-                };
-                updateHybridGuestGame(gameId, updatedLocalGame);
-                return fbData;
-              } else if (hybridGuestGame.version && (!fbData.version || hybridGuestGame.version > fbData.version)) {
-                console.log('Local hybrid guest game has newer version, updating Firebase');
-                // Queue local changes for sync
-                saveSyncQueue({
-                  type: 'update',
-                  gameId,
-                  updates: hybridGuestGame,
-                  timestamp: Date.now(),
-                  version: hybridGuestGame.version,
-                });
-              }
-            }
-          } catch (error) {
-            console.warn('Firebase sync failed for hybrid guest game, using local data:', error);
-          }
-        }
-        
+      if (hybridGame) {
         // Convert HybridGuestGame to Game format for compatibility
         return {
-          ...hybridGuestGame,
-          createdAt: { toDate: () => new Date(hybridGuestGame.createdAt) } as any,
-          ownerId: `guest_${hybridGuestGame.deviceId}`,
+          ...hybridGame,
+          createdAt: { toDate: () => new Date(hybridGame.createdAt) } as any,
+          ownerId: `guest_${hybridGame.deviceId}`,
           ownerEmail: 'guest@local',
-          sharePublic: true,
+          sharePublic: hybridGame.sharePublic || false,
         } as Game;
       }
       
@@ -501,72 +516,81 @@ export async function loadGame(gameId: string): Promise<Game | null> {
       
       return null;
     } else {
-      // For registered users: Try local first, then Firebase
-      let game = loadLocalGame(gameId);
+      // For registered users: Try local storage first, then Firebase
+      let localGame = loadLocalGame(gameId);
       
-      if (game) {
-        // Convert local game to Game format
-        const localGame: Game = {
-          ...game,
-          createdAt: { toDate: () => new Date(game.createdAt) } as any,
-        };
+      if (localGame) {
+        // Convert LocalGame to Game format for compatibility
+        const gameWithTimestamp = {
+          ...localGame,
+          createdAt: { toDate: () => new Date(localGame.createdAt) } as any,
+        } as Game;
         
-        // Check if we should try to sync with Firebase
-        const shouldSync = isOnline && isFirebaseConnected && 
-          (!game.lastSyncedAt || Date.now() - game.lastSyncedAt > 30000); // Sync if >30s old
-        
-        if (shouldSync) {
-          try {
-            const firebaseGame = await getDoc(doc(getFirebaseDB(), 'games', gameId));
-            if (firebaseGame.exists()) {
-              const fbData = firebaseGame.data() as Game;
+        // Try to sync with Firebase in the background
+        try {
+          const firebaseConnected = await checkFirebaseConnection();
+          if (firebaseConnected) {
+            const gameRef = doc(getFirebaseDB(), 'games', gameId);
+            const gameDoc = await getDoc(gameRef);
+            
+            if (gameDoc.exists()) {
+              const firebaseGame = gameDoc.data() as Game;
               
-              // Conflict resolution: use the more recent version
-              if (fbData.version && (!game.version || fbData.version > game.version)) {
+              // Check if Firebase has newer version
+              if (firebaseGame.version && firebaseGame.version > (localGame.version || 0)) {
                 console.log('Firebase has newer version, updating local game');
+                // Update local game with Firebase data
                 const updatedLocalGame = {
-                  ...fbData,
-                  createdAt: fbData.createdAt?.toDate?.() ? fbData.createdAt.toDate().getTime() : Date.now(),
+                  ...firebaseGame,
+                  createdAt: Date.now(), // Convert Timestamp to number for local storage
                   lastSyncedAt: Date.now(),
                 };
-                saveLocalGame(updatedLocalGame);
-                return fbData;
-              } else if (game.version && (!fbData.version || game.version > fbData.version)) {
-                console.log('Local has newer version, updating Firebase');
-                // Queue local changes for sync
-                saveSyncQueue({
-                  type: 'update',
-                  gameId,
-                  updates: game,
-                  timestamp: Date.now(),
-                  version: game.version,
-                });
+                updateLocalGame(gameId, updatedLocalGame);
+                
+                // Return Firebase game
+                return firebaseGame;
+              } else {
+                // Local game is up to date or newer
+                console.log('Local game is up to date');
+                return gameWithTimestamp;
               }
+            } else {
+              // Game doesn't exist in Firebase, return local game
+              console.log('Game not found in Firebase, using local game');
+              return gameWithTimestamp;
             }
-          } catch (error) {
-            console.warn('Firebase sync failed, using local data:', error);
+          } else {
+            // Firebase not connected, return local game
+            console.log('Firebase not connected, using local game');
+            return gameWithTimestamp;
           }
+        } catch (error) {
+          console.warn('Failed to sync with Firebase, using local game:', error);
+          return gameWithTimestamp;
         }
-        
-        return localGame;
       }
       
-      // If not found locally, try Firebase
+      // Game not found locally, try Firebase
       try {
-        const gameDoc = await getDoc(doc(getFirebaseDB(), 'games', gameId));
-        if (gameDoc.exists()) {
-          const firebaseGame = gameDoc.data() as Game;
+        const firebaseConnected = await checkFirebaseConnection();
+        if (firebaseConnected) {
+          const gameRef = doc(getFirebaseDB(), 'games', gameId);
+          const gameDoc = await getDoc(gameRef);
           
-          // Save to local storage for future fast access
-          const localGame = {
-            ...firebaseGame,
-            createdAt: firebaseGame.createdAt?.toDate?.() ? firebaseGame.createdAt.toDate().getTime() : Date.now(),
-            lastSyncedAt: Date.now(),
-            version: firebaseGame.version || 1,
-          };
-          saveLocalGame(localGame);
-          
-          return firebaseGame;
+          if (gameDoc.exists()) {
+            const firebaseGame = gameDoc.data() as Game;
+            
+            // Save to local storage for future access
+            const localGame = {
+              ...firebaseGame,
+              createdAt: Date.now(), // Convert Timestamp to number for local storage
+              lastSyncedAt: Date.now(),
+            };
+            saveLocalGame(localGame);
+            
+            console.log('Game loaded from Firebase and saved locally');
+            return firebaseGame;
+          }
         }
       } catch (error) {
         console.warn('Failed to load from Firebase:', error);
@@ -576,6 +600,33 @@ export async function loadGame(gameId: string): Promise<Game | null> {
     }
   } catch (error) {
     console.error('Error loading game:', error);
+    // Try to load from local storage as fallback
+    try {
+      if (getFirebaseAuth()?.currentUser?.isAnonymous) {
+        const fallbackGame = loadHybridGuestGame(gameId) || loadGuestGame(gameId);
+        if (fallbackGame) {
+          console.log('Using fallback local game after load error');
+          return {
+            ...fallbackGame,
+            createdAt: { toDate: () => new Date(fallbackGame.createdAt) } as any,
+            ownerId: fallbackGame.deviceId ? `guest_${fallbackGame.deviceId}` : 'guest',
+            ownerEmail: 'guest@local',
+            sharePublic: fallbackGame.sharePublic || false,
+          } as Game;
+        }
+      } else {
+        const fallbackGame = loadLocalGame(gameId);
+        if (fallbackGame) {
+          console.log('Using fallback local game after load error');
+          return {
+            ...fallbackGame,
+            createdAt: { toDate: () => new Date(fallbackGame.createdAt) } as any,
+          } as Game;
+        }
+      }
+    } catch (fallbackError) {
+      console.warn('Failed to load fallback game:', fallbackError);
+    }
     return null;
   }
 }
@@ -628,10 +679,14 @@ export async function updateGame(gameId: string, updates: Partial<Game>): Promis
               timestamp: Date.now(),
               version: newVersion,
             });
-            console.log('Hybrid guest game updated locally, queued for Firebase sync');
+            // Only log in development mode
+            if (process.env.NODE_ENV === 'development') {
+              console.log('Hybrid guest game updated locally, queued for Firebase sync');
+            }
           }
         } catch (error) {
-          console.warn('Failed to update Firebase for hybrid guest game, queuing for sync:', error);
+          console.warn('Failed to update Firebase for hybrid guest game, continuing with local storage only:', error);
+          // Continue with local storage only - don't fail the update
           // Queue for sync when online
           saveSyncQueue({
             type: 'update',
@@ -712,7 +767,10 @@ export async function updateGame(gameId: string, updates: Partial<Game>): Promis
             version: newVersion,
           });
           
-          console.log('Game updated and synced to Firebase');
+          // Only log in development mode
+          if (process.env.NODE_ENV === 'development') {
+            console.log('Game updated and synced to Firebase');
+          }
         } else {
           // Queue for sync when online
           saveSyncQueue({
@@ -725,7 +783,8 @@ export async function updateGame(gameId: string, updates: Partial<Game>): Promis
           console.log('Game updated locally, queued for Firebase sync');
         }
       } catch (error) {
-        console.warn('Failed to update Firebase, queuing for sync:', error);
+        console.warn('Failed to update Firebase, continuing with local storage only:', error);
+        // Continue with local storage only - don't fail the update
         // Queue for sync when online
         saveSyncQueue({
           type: 'update',
@@ -744,6 +803,17 @@ export async function updateGame(gameId: string, updates: Partial<Game>): Promis
     }
   } catch (error) {
     console.error('Error updating game:', error);
+    // Don't return null, try to return the current game state if possible
+    try {
+      // Try to load the current game state as fallback
+      const currentGame = await loadGame(gameId);
+      if (currentGame) {
+        console.log('Returning current game state as fallback after update error');
+        return currentGame;
+      }
+    } catch (fallbackError) {
+      console.warn('Failed to load fallback game state:', fallbackError);
+    }
     return null;
   }
 }
@@ -862,19 +932,69 @@ export async function getUserGames(): Promise<GameSummary[]> {
 // Get public games (for sharing)
 export async function getPublicGame(gameId: string): Promise<Game | null> {
   try {
+    console.log(`Attempting to load public game: ${gameId}`);
+    
     // First try to get from Firebase
-    const gameDoc = await getDoc(doc(getFirebaseDB(), 'games', gameId));
+    const db = getFirebaseDB();
+    if (!db) {
+      console.warn('Firebase database not available, checking local storage only');
+      // Fall back to local storage check
+      const hybridGuestGame = loadHybridGuestGame(gameId);
+      if (hybridGuestGame && hybridGuestGame.sharePublic) {
+        console.log('Found hybrid guest game in local storage');
+        // Convert HybridGuestGame to Game format for compatibility
+        return {
+          ...hybridGuestGame,
+          createdAt: { toDate: () => new Date(hybridGuestGame.createdAt) } as any,
+          ownerId: `guest_${hybridGuestGame.deviceId}`,
+          ownerEmail: 'guest@local',
+          sharePublic: true,
+        } as Game;
+      }
+      
+      const guestGame = loadGuestGame(gameId);
+      if (guestGame && guestGame.sharePublic) {
+        console.log('Found guest game in local storage');
+        // Convert GuestGame to Game format for compatibility
+        return {
+          ...guestGame,
+          createdAt: { toDate: () => new Date(guestGame.createdAt) } as any,
+          ownerId: 'guest',
+          ownerEmail: 'guest@local',
+          sharePublic: true,
+        } as Game;
+      }
+      
+      return null;
+    }
+    
+    console.log('Firebase database available, attempting to fetch game document');
+    
+    const gameDoc = await getDoc(doc(db, 'games', gameId));
     if (gameDoc.exists()) {
       const game = gameDoc.data() as Game;
+      console.log('Game document found in Firebase:', { 
+        id: game.id, 
+        sharePublic: game.sharePublic, 
+        ownerId: game.ownerId 
+      });
+      
       if (game.sharePublic) {
+        console.log('Game is public, returning Firebase data');
         return game;
+      } else {
+        console.log('Game found but is not public');
+        return null;
       }
+    } else {
+      console.log('Game document not found in Firebase, checking local storage');
     }
     
     // If not found in Firebase, check if it's a hybrid guest game in local storage
     // This allows guest users to share games with others on the same device
     const hybridGuestGame = loadHybridGuestGame(gameId);
     if (hybridGuestGame && hybridGuestGame.sharePublic) {
+      console.log('Found hybrid guest game in local storage');
       // Convert HybridGuestGame to Game format for compatibility
       return {
         ...hybridGuestGame,
@@ -885,9 +1005,66 @@ export async function getPublicGame(gameId: string): Promise<Game | null> {
       } as Game;
     }
     
+    // Try regular guest game as final fallback
+    const guestGame = loadGuestGame(gameId);
+    if (guestGame && guestGame.sharePublic) {
+      console.log('Found regular guest game in local storage');
+      // Convert GuestGame to Game format for compatibility
+      return {
+        ...guestGame,
+        createdAt: { toDate: () => new Date(guestGame.createdAt) } as any,
+        ownerId: 'guest',
+        ownerEmail: 'guest@local',
+        sharePublic: true,
+      } as Game;
+    }
+    
+    console.log('Game not found in Firebase or local storage');
     return null;
   } catch (error) {
     console.error('Error loading public game:', error);
+    
+    // Log specific error details for debugging
+    if (error instanceof Error) {
+      if (error.message.includes('Target ID already exists')) {
+        console.error('Firebase "Target ID already exists" error detected. This usually means:');
+        console.error('1. Multiple Firebase app instances are running');
+        console.error('2. Firebase configuration conflict');
+        console.error('3. Firebase app initialization issue');
+        console.error('4. Firebase rules preventing access');
+      } else if (error.message.includes('permission-denied')) {
+        console.error('Firebase permission denied. Check security rules.');
+      } else if (error.message.includes('not-found')) {
+        console.error('Game document not found in Firebase.');
+      }
+    }
+    
+    // Fall back to local storage on error
+    console.log('Falling back to local storage due to Firebase error');
+    const hybridGuestGame = loadHybridGuestGame(gameId);
+    if (hybridGuestGame && hybridGuestGame.sharePublic) {
+      console.log('Found hybrid guest game in local storage as fallback');
+      return {
+        ...hybridGuestGame,
+        createdAt: { toDate: () => new Date(hybridGuestGame.createdAt) } as any,
+        ownerId: `guest_${hybridGuestGame.deviceId}`,
+        ownerEmail: 'guest@local',
+        sharePublic: true,
+      } as Game;
+    }
+    
+    const guestGame = loadGuestGame(gameId);
+    if (guestGame && guestGame.sharePublic) {
+      console.log('Found guest game in local storage as fallback');
+      return {
+        ...guestGame,
+        createdAt: { toDate: () => new Date(guestGame.createdAt) } as any,
+        ownerId: 'guest',
+        ownerEmail: 'guest@local',
+        sharePublic: true,
+      } as Game;
+    }
+    
     return null;
   }
 }

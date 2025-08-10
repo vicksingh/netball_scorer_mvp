@@ -3,7 +3,6 @@
 import { useAuth } from './contexts/AuthContext';
 import RecentMatches from './components/RecentMatches';
 import AuthForm from './components/AuthForm';
-import { getGuestUserInfo } from './lib/guest-storage';
 import { useEffect, useState, Suspense } from 'react';
 import Link from 'next/link';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
@@ -12,17 +11,43 @@ import PWAInstallPrompt from './components/PWAInstallPrompt';
 export const dynamic = 'force-dynamic';
 
 function HomeContent() {
-  const { user, logout } = useAuth();
+  const { user, logout, loading: authLoading } = useAuth();
   const [guestInfo, setGuestInfo] = useState<any>(null);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    if (user?.isAnonymous) {
-      // Get guest user info for display
-      const info = getGuestUserInfo();
-      setGuestInfo(info);
-    }
-  }, [user]);
+    setMounted(true);
+  }, []);
 
+  useEffect(() => {
+    if (mounted && user?.isAnonymous) {
+      // Only load guest info after mounted and when user is confirmed to be anonymous
+      const loadGuestInfo = async () => {
+        try {
+          // Dynamic import to avoid server-side issues
+          const { getGuestUserInfo } = await import('./lib/guest-storage');
+          const info = getGuestUserInfo();
+          setGuestInfo(info);
+        } catch (error) {
+          console.error('Error getting guest info:', error);
+          setGuestInfo(null);
+        }
+      };
+      
+      loadGuestInfo();
+    }
+  }, [mounted, user]);
+
+  // Show loading state until mounted and auth is ready
+  if (!mounted || authLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-900 via-blue-800 to-purple-900 flex items-center justify-center">
+        <div className="text-white text-xl">Loading...</div>
+      </div>
+    );
+  }
+
+  // Show auth form if no user
   if (!user) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-900 via-blue-800 to-purple-900">
@@ -42,8 +67,9 @@ function HomeContent() {
     );
   }
 
+  // Show main content for authenticated users
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-900 via-blue-800 to-purple-900">
+    <div className="min-h-screen bg-gradient-to-br from-blue-900 via-blue-800 to-purple-900" suppressHydrationWarning>
       <PWAInstallPrompt />
       {/* Header */}
       <div className="bg-white/10 backdrop-blur-sm border-b border-white/20">
@@ -72,12 +98,10 @@ function HomeContent() {
             Hello {user.isAnonymous ? 'Guest' : (user.displayName || 'User')},<br />
             Welcome to ScoZo
           </h2>
-          <p className="text-white/80 text-lg mb-6">
+          <p className="text-white/80 text-lg mb-8">
             Professional netball scoring made simple and intuitive
           </p>
           
-
-
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
             <Link
               href="/new"
@@ -94,13 +118,11 @@ function HomeContent() {
           </div>
         </div>
 
-
-
         {/* Recent Matches */}
         <RecentMatches />
         
-        {/* Guest User Info - Moved below buttons */}
-        {user.isAnonymous && guestInfo && (
+        {/* Guest User Info - Only show when we have actual guest data */}
+        {user.isAnonymous && mounted && guestInfo && guestInfo.deviceId !== 'guest_device_id_placeholder' && (
           <div className="mt-8 text-center">
             <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20 max-w-md mx-auto">
               <h3 className="text-white font-semibold text-lg mb-3">Guest Mode Active</h3>
@@ -111,7 +133,7 @@ function HomeContent() {
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-white/80">Saved Games:</span>
-                  <span className="text-white font-medium">{guestInfo.gamesCount}</span>
+                  <span className="text-white/60 font-mono text-xs">{guestInfo.gamesCount}</span>
                 </div>
               </div>
             </div>
@@ -158,7 +180,7 @@ export default function Home() {
         <div className="text-white text-xl">Loading...</div>
       </div>
     }>
-      <HomeContent />
+      <HomeContent key="home-content" />
     </Suspense>
   );
 }

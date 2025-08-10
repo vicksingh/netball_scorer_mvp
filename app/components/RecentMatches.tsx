@@ -8,9 +8,11 @@ import { getCompletedGames, GameSummary } from '../lib/firebase-utils';
 export default function RecentMatches() {
   const [games, setGames] = useState<GameSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [mounted, setMounted] = useState(false);
   const { user } = useAuth();
 
   useEffect(() => {
+    setMounted(true);
     if (!user) {
       setGames([]);
       setLoading(false);
@@ -31,6 +33,15 @@ export default function RecentMatches() {
 
     loadGames();
   }, [user]);
+
+  // Don't render until mounted to prevent hydration mismatch
+  if (!mounted) {
+    return (
+      <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20">
+        <div className="text-white/60 text-center">Loading...</div>
+      </div>
+    );
+  }
 
   if (!user) return null;
 

@@ -1,6 +1,9 @@
 // Guest user local storage utilities
 // This handles saving and loading guest user data locally on the device
 
+// Check if we're in a browser environment
+const isClient = typeof window !== 'undefined';
+
 export interface GuestGame {
   id: string;
   shortId: string;
@@ -101,6 +104,9 @@ export interface SyncQueueItem {
 
 // Generate a unique device ID for this browser/device
 function getDeviceId(): string {
+  if (!isClient) {
+    return 'guest_device_id_placeholder'; // Placeholder for server-side
+  }
   let deviceId = localStorage.getItem('guest_device_id');
   if (!deviceId) {
     // Create a unique device ID based on browser fingerprint and timestamp
@@ -115,6 +121,9 @@ function getDeviceId(): string {
 
 // Save a guest game to local storage
 export function saveGuestGame(game: GuestGame): void {
+  if (!isClient) {
+    return; // Exit if not in a browser environment
+  }
   try {
     const deviceId = getDeviceId();
     const gameWithDevice = { ...game, deviceId };
@@ -167,6 +176,9 @@ export function saveGuestGame(game: GuestGame): void {
 
 // Upgrade a regular guest game to hybrid (called after Firebase sync)
 export function upgradeGuestGameToHybrid(gameId: string, firebaseId: string): boolean {
+  if (!isClient) {
+    return false; // Exit if not in a browser environment
+  }
   try {
     const guestGame = loadGuestGame(gameId);
     if (guestGame) {
@@ -188,6 +200,9 @@ export function upgradeGuestGameToHybrid(gameId: string, firebaseId: string): bo
 
 // Load a specific guest game from local storage
 export function loadGuestGame(gameId: string): GuestGame | null {
+  if (!isClient) {
+    return null; // Exit if not in a browser environment
+  }
   try {
     const saved = localStorage.getItem(`guest_game_${gameId}`);
     if (saved) {
@@ -206,6 +221,9 @@ export function loadGuestGame(gameId: string): GuestGame | null {
 
 // Get all guest games for the current device
 export function getGuestGamesList(): GuestGameSummary[] {
+  if (!isClient) {
+    return []; // Exit if not in a browser environment
+  }
   try {
     const saved = localStorage.getItem('guest_games_list');
     if (saved) {
@@ -222,6 +240,9 @@ export function getGuestGamesList(): GuestGameSummary[] {
 
 // Update a guest game in local storage
 export function updateGuestGame(gameId: string, updates: Partial<GuestGame>): GuestGame | null {
+  if (!isClient) {
+    return null; // Exit if not in a browser environment
+  }
   try {
     const game = loadGuestGame(gameId);
     if (game) {
@@ -243,6 +264,9 @@ export function updateGuestGame(gameId: string, updates: Partial<GuestGame>): Gu
 
 // Delete a guest game from local storage
 export function deleteGuestGame(gameId: string): boolean {
+  if (!isClient) {
+    return false; // Exit if not in a browser environment
+  }
   try {
     // Remove from games list
     const gamesList = getGuestGamesList();
@@ -261,6 +285,9 @@ export function deleteGuestGame(gameId: string): boolean {
 
 // Get completed guest games
 export function getCompletedGuestGames(): GuestGameSummary[] {
+  if (!isClient) {
+    return []; // Exit if not in a browser environment
+  }
   try {
     const games = getGuestGamesList();
     return games.filter(game => {
@@ -277,6 +304,9 @@ export function getCompletedGuestGames(): GuestGameSummary[] {
 
 // Save a local game for registered users
 export function saveLocalGame(game: LocalGame): void {
+  if (!isClient) {
+    return; // Exit if not in a browser environment
+  }
   try {
     // Save the full game
     localStorage.setItem(`local_game_${game.id}`, JSON.stringify(game));
@@ -322,6 +352,9 @@ export function saveLocalGame(game: LocalGame): void {
 
 // Load a specific local game
 export function loadLocalGame(gameId: string): LocalGame | null {
+  if (!isClient) {
+    return null; // Exit if not in a browser environment
+  }
   try {
     const saved = localStorage.getItem(`local_game_${gameId}`);
     if (saved) {
@@ -336,6 +369,9 @@ export function loadLocalGame(gameId: string): LocalGame | null {
 
 // Get all local games for registered users
 export function getLocalGamesList(): LocalGameSummary[] {
+  if (!isClient) {
+    return []; // Exit if not in a browser environment
+  }
   try {
     const saved = localStorage.getItem('local_games_list');
     if (saved) {
@@ -350,6 +386,9 @@ export function getLocalGamesList(): LocalGameSummary[] {
 
 // Update a local game
 export function updateLocalGame(gameId: string, updates: Partial<LocalGame>): LocalGame | null {
+  if (!isClient) {
+    return null; // Exit if not in a browser environment
+  }
   try {
     const game = loadLocalGame(gameId);
     if (game) {
@@ -371,6 +410,9 @@ export function updateLocalGame(gameId: string, updates: Partial<LocalGame>): Lo
 
 // Delete a local game
 export function deleteLocalGame(gameId: string): boolean {
+  if (!isClient) {
+    return false; // Exit if not in a browser environment
+  }
   try {
     // Remove from games list
     const gamesList = getLocalGamesList();
@@ -389,6 +431,9 @@ export function deleteLocalGame(gameId: string): boolean {
 
 // Get completed local games
 export function getCompletedLocalGames(): LocalGameSummary[] {
+  if (!isClient) {
+    return []; // Exit if not in a browser environment
+  }
   try {
     const games = getLocalGamesList();
     return games.filter(game => {
@@ -405,9 +450,21 @@ export function getCompletedLocalGames(): LocalGameSummary[] {
 
 // Save a hybrid guest game (both locally and prepare for Firebase sync)
 export function saveHybridGuestGame(game: HybridGuestGame): void {
+  if (!isClient) {
+    return; // Exit if not in a browser environment
+  }
   try {
     const deviceId = getDeviceId();
     const gameWithDevice = { ...game, deviceId };
+    
+    // Debug logging
+    console.log('saveHybridGuestGame - Saving:', {
+      gameId: game.id,
+      hasState: !!game.state,
+      stateKeys: game.state ? Object.keys(game.state) : 'NO STATE',
+      isRunning: game.state?.isRunning,
+      phase: game.state?.phase
+    });
     
     // Save the full game locally
     localStorage.setItem(`hybrid_guest_game_${game.id}`, JSON.stringify(gameWithDevice));
@@ -457,6 +514,9 @@ export function saveHybridGuestGame(game: HybridGuestGame): void {
 
 // Load a hybrid guest game from local storage
 export function loadHybridGuestGame(gameId: string): HybridGuestGame | null {
+  if (!isClient) {
+    return null; // Exit if not in a browser environment
+  }
   try {
     const saved = localStorage.getItem(`hybrid_guest_game_${gameId}`);
     if (saved) {
@@ -475,6 +535,9 @@ export function loadHybridGuestGame(gameId: string): HybridGuestGame | null {
 
 // Get all hybrid guest games for the current device
 export function getHybridGuestGamesList(): (GuestGameSummary & { firebaseId: string; lastSyncedAt: number; version: number })[] {
+  if (!isClient) {
+    return []; // Exit if not in a browser environment
+  }
   try {
     const saved = localStorage.getItem('hybrid_guest_games_list');
     if (saved) {
@@ -491,19 +554,54 @@ export function getHybridGuestGamesList(): (GuestGameSummary & { firebaseId: str
 
 // Update a hybrid guest game
 export function updateHybridGuestGame(gameId: string, updates: Partial<HybridGuestGame>): HybridGuestGame | null {
+  if (!isClient) {
+    return null; // Exit if not in a browser environment
+  }
   try {
     const game = loadHybridGuestGame(gameId);
     if (game) {
+      // Ensure we have a valid state object before proceeding
+      if (!game.state) {
+        console.error('Cannot update game: missing state object');
+        return null;
+      }
+      
       const updatedGame = { 
         ...game, 
         ...updates,
-        // Deep merge for nested objects
-        state: updates.state ? { ...game.state, ...updates.state } : game.state,
+        // Simple deep merge for state updates
+        state: updates.state ? { 
+          ...game.state, 
+          ...updates.state
+        } : game.state,
         // Increment version for conflict resolution
         version: (game.version || 1) + 1,
         // Update last synced timestamp
         lastSyncedAt: Date.now(),
       };
+      
+      // Debug logging
+      console.log('updateHybridGuestGame - Input:', {
+        gameId,
+        updates,
+        hasState: !!updates.state,
+        stateKeys: updates.state ? Object.keys(updates.state) : 'NO STATE'
+      });
+      
+      console.log('updateHybridGuestGame - Result:', {
+        hasGame: !!updatedGame,
+        hasState: !!updatedGame.state,
+        stateKeys: updatedGame.state ? Object.keys(updatedGame.state) : 'NO STATE',
+        isRunning: updatedGame.state?.isRunning,
+        phase: updatedGame.state?.phase
+      });
+      
+      // Validate the updated state before saving
+      if (!updatedGame.state || typeof updatedGame.state !== 'object') {
+        console.error('Invalid state after update, reverting to original game');
+        return game;
+      }
+      
       saveHybridGuestGame(updatedGame);
       return updatedGame;
     }
@@ -516,6 +614,9 @@ export function updateHybridGuestGame(gameId: string, updates: Partial<HybridGue
 
 // Delete a hybrid guest game
 export function deleteHybridGuestGame(gameId: string): boolean {
+  if (!isClient) {
+    return false; // Exit if not in a browser environment
+  }
   try {
     // Remove from games list
     const gamesList = getHybridGuestGamesList();
@@ -545,11 +646,17 @@ export function convertToHybridGuestGame(guestGame: GuestGame, firebaseId: strin
 
 // Check if a guest game is hybrid (exists in both local storage and Firebase)
 export function isHybridGuestGame(gameId: string): boolean {
+  if (!isClient) {
+    return false; // Exit if not in a browser environment
+  }
   return loadHybridGuestGame(gameId) !== null;
 }
 
 // Get sync status for hybrid guest games
 export function getHybridGuestGameSyncStatus(gameId: string): { isSynced: boolean; lastSyncedAt: number | null; version: number } {
+  if (!isClient) {
+    return { isSynced: false, lastSyncedAt: null, version: 0 }; // Exit if not in a browser environment
+  }
   const game = loadHybridGuestGame(gameId);
   if (!game) {
     return { isSynced: false, lastSyncedAt: null, version: 0 };
@@ -566,6 +673,9 @@ export function getHybridGuestGameSyncStatus(gameId: string): { isSynced: boolea
 
 // Clear all guest data for the current device
 export function clearGuestData(): void {
+  if (!isClient) {
+    return; // Exit if not in a browser environment
+  }
   try {
     const deviceId = getDeviceId();
     const gamesList = getGuestGamesList();
@@ -587,6 +697,9 @@ export function clearGuestData(): void {
 
 // Clear all local data for registered users
 export function clearLocalData(): void {
+  if (!isClient) {
+    return; // Exit if not in a browser environment
+  }
   try {
     const gamesList = getLocalGamesList();
     
@@ -604,16 +717,25 @@ export function clearLocalData(): void {
 
 // Check if guest has any saved games
 export function hasGuestGames(): boolean {
+  if (!isClient) {
+    return false; // Exit if not in a browser environment
+  }
   return getGuestGamesList().length > 0;
 }
 
 // Check if registered user has any saved local games
 export function hasLocalGames(): boolean {
+  if (!isClient) {
+    return false; // Exit if not in a browser environment
+  }
   return getLocalGamesList().length > 0;
 }
 
 // Migrate any existing games from old localStorage format
 export function migrateExistingGames(): void {
+  if (!isClient) {
+    return; // Exit if not in a browser environment
+  }
   try {
     // Check if there are any games stored in the old format
     const keys = Object.keys(localStorage);
@@ -661,6 +783,15 @@ export function migrateExistingGames(): void {
 
 // Get guest user info
 export function getGuestUserInfo() {
+  if (!isClient) {
+    return {
+      deviceId: 'guest_device_id_placeholder',
+      isGuest: true,
+      hasGames: false,
+      gamesCount: 0,
+    };
+  }
+  
   // Try to migrate any existing games first
   migrateExistingGames();
   
@@ -674,6 +805,13 @@ export function getGuestUserInfo() {
 
 // Get registered user info
 export function getRegisteredUserInfo() {
+  if (!isClient) {
+    return {
+      hasLocalGames: false,
+      localGamesCount: 0,
+    };
+  }
+  
   // Try to migrate any existing games first
   migrateExistingGames();
   
@@ -687,6 +825,9 @@ export function getRegisteredUserInfo() {
 
 // Save a sync queue item for offline changes
 export function saveSyncQueue(item: SyncQueueItem): void {
+  if (!isClient) {
+    return; // Exit if not in a browser environment
+  }
   try {
     const queue = getSyncQueue();
     
@@ -712,6 +853,9 @@ export function saveSyncQueue(item: SyncQueueItem): void {
 
 // Get all pending sync queue items
 export function getSyncQueue(): SyncQueueItem[] {
+  if (!isClient) {
+    return []; // Exit if not in a browser environment
+  }
   try {
     const saved = localStorage.getItem('sync_queue');
     if (saved) {
@@ -726,6 +870,9 @@ export function getSyncQueue(): SyncQueueItem[] {
 
 // Clear the sync queue (after successful sync)
 export function clearSyncQueue(): void {
+  if (!isClient) {
+    return; // Exit if not in a browser environment
+  }
   try {
     localStorage.removeItem('sync_queue');
   } catch (error) {
@@ -735,6 +882,9 @@ export function clearSyncQueue(): void {
 
 // Remove a specific sync queue item
 export function removeSyncQueueItem(gameId: string): void {
+  if (!isClient) {
+    return; // Exit if not in a browser environment
+  }
   try {
     const queue = getSyncQueue();
     const filteredQueue = queue.filter(q => q.gameId !== gameId);
@@ -746,6 +896,9 @@ export function removeSyncQueueItem(gameId: string): void {
 
 // Get sync queue status
 export function getSyncQueueStatus() {
+  if (!isClient) {
+    return { pendingCount: 0, hasPendingChanges: false, oldestPending: null, newestPending: null }; // Exit if not in a browser environment
+  }
   const queue = getSyncQueue();
   return {
     pendingCount: queue.length,
