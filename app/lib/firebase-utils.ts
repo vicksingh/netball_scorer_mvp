@@ -160,6 +160,19 @@ async function checkFirebaseConnection(): Promise<boolean> {
   } catch (error) {
     console.warn('Firebase connection check failed:', error);
     isFirebaseConnected = false;
+    
+    // Log specific error details for debugging
+    if (error instanceof Error) {
+      if (error.message.includes('Missing') || error.message.includes('insufficient permissions')) {
+        console.error('Firebase script or permissions issue detected. Please check:');
+        console.error('1. Firebase project configuration');
+        console.error('2. Domain authorization in Firebase console');
+        console.error('3. Environment variables');
+      } else if (error.message.includes('400')) {
+        console.error('Firebase Bad Request (400) - check request format and permissions');
+      }
+    }
+    
     return false;
   }
 }

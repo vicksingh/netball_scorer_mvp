@@ -293,12 +293,32 @@ function GamePageContent() {
   // Safety check for game state
   if (!game.state || !game.state.phase) {
     console.error('Game state is missing or incomplete:', game);
+    
+    // Try to recover by reloading the game
+    if (user) {
+      setTimeout(() => {
+        // Reload the game data
+        const reloadGame = async () => {
+          try {
+            const loadedGame = await loadGame(id);
+            if (loadedGame && loadedGame.state && loadedGame.state.phase) {
+              setGame(loadedGame);
+            }
+          } catch (error) {
+            console.error('Failed to reload game:', error);
+          }
+        };
+        reloadGame();
+      }, 1000);
+    }
+    
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-indigo-900 flex items-center justify-center">
         <div className="text-center">
           <div className="text-red-400 text-6xl mb-4">⚠️</div>
           <div className="text-white text-xl mb-2">Game Data Error</div>
           <div className="text-white/60 text-sm mb-4">The game data appears to be corrupted or incomplete.</div>
+          <div className="text-white/40 text-xs mb-4">Attempting to reload...</div>
           <button 
             onClick={() => window.location.href = '/new'} 
             className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
