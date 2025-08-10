@@ -290,21 +290,21 @@ function GamePageContent() {
 
   if (!game) return <div>Loading…</div>;
   const { teamA, teamB, state, settings } = game;
-  const leadingTeamName = state.scores.A > state.scores.B ? teamA.name : teamB.name;
-  const winnerText = state.scores.A === state.scores.B ? "IT'S A DRAW" : `${leadingTeamName} WINS!`;
-  const isDraw = state.scores.A === state.scores.B;
-  const winMargin = Math.abs(state.scores.A - state.scores.B);
+  const leadingTeamName = (state?.scores?.A || 0) > (state?.scores?.B || 0) ? teamA.name : teamB.name;
+  const winnerText = (state?.scores?.A || 0) === (state?.scores?.B || 0) ? "IT'S A DRAW" : `${leadingTeamName} WINS!`;
+  const isDraw = (state?.scores?.A || 0) === (state?.scores?.B || 0);
+  const winMargin = Math.abs((state?.scores?.A || 0) - (state?.scores?.B || 0));
   const bannerText = isDraw ? "It's a draw" : `${leadingTeamName} won by ${winMargin}`;
 
   console.log('Current game state:', { 
     gameId: id,
-    phase: state.phase, 
-    isRunning: state.isRunning,
-    scores: state.scores,
-    centrePass: state.centrePass,
+    phase: state?.phase, 
+    isRunning: state?.isRunning,
+    scores: state?.scores,
+    centrePass: state?.centrePass,
     settings: settings,
-    elapsedMs: state.elapsedMs,
-    phaseStartedAt: state.phaseStartedAt
+    elapsedMs: state?.elapsedMs,
+    phaseStartedAt: state?.phaseStartedAt
   });
 
   // Debounced sync function to prevent too many Firebase calls during rapid scoring
@@ -423,7 +423,7 @@ function GamePageContent() {
     const updatedGame = updateGameOptimized(id, {
       state: {
         ...state,
-        scores: { A: state.scores.A + (team === "A" ? 1 : 0), B: state.scores.B + (team === "B" ? 1 : 0) },
+        scores: { A: (state?.scores?.A || 0) + (team === "A" ? 1 : 0), B: (state?.scores?.B || 0) + (team === "B" ? 1 : 0) },
         quarterScores: updatedQuarterScores,
         centrePass: state.centrePass === "A" ? "B" : "A", // Toggle centre pass after each goal
         lastGoal: {
@@ -698,7 +698,7 @@ function GamePageContent() {
             {/* Team A */}
             <div className="space-y-4">
               <div className="text-white/60 text-sm font-medium uppercase tracking-wider">{teamA.name}</div>
-              <div className="text-5xl font-bold text-white leading-none">{state.scores.A}</div>
+              <div className="text-5xl font-bold text-white leading-none">{state?.scores?.A || 0}</div>
               <button 
                 className={`font-bold py-3 px-4 rounded-xl shadow-lg transition-all duration-200 w-full text-sm ${
                   game.state.isRunning && state.phase.type === "quarter"
@@ -791,8 +791,8 @@ function GamePageContent() {
                       // Edit mode - allow manual score editing
                       console.log('Edit scores clicked');
                       const scoreInput = prompt(
-                        `Edit Scores:\n\n${teamA.name}: ${state.scores.A}\n${teamB.name}: ${state.scores.B}\n\nEnter new scores (format: "A,B" or "A B"):`,
-                        `${state.scores.A},${state.scores.B}`
+                        `Edit Scores:\n\n${teamA.name}: ${state?.scores?.A || 0}\n${teamB.name}: ${state?.scores?.B || 0}\n\nEnter new scores (format: "A,B" or "A B"):`,
+                        `${state?.scores?.A || 0},${state?.scores?.B || 0}`
                       );
                       
                       if (scoreInput !== null) {
@@ -832,10 +832,10 @@ function GamePageContent() {
                         const updatedGame = updateGameOptimized(id, {
                           state: {
                             ...state,
-                            scores: { 
-                              A: state.scores.A - (lastGoal.team === "A" ? 1 : 0), 
-                              B: state.scores.B - (lastGoal.team === "B" ? 1 : 0) 
-                            },
+                                                          scores: { 
+                                A: (state?.scores?.A || 0) - (lastGoal.team === "A" ? 1 : 0), 
+                                B: (state?.scores?.B || 0) - (lastGoal.team === "B" ? 1 : 0) 
+                              },
                             quarterScores: updatedQuarterScores,
                             centrePass: lastGoal.previousCentrePass, // Restore previous centre pass
                             lastGoal: null, // Clear the last goal
@@ -856,7 +856,7 @@ function GamePageContent() {
             {/* Team B */}
             <div className="space-y-4">
               <div className="text-white/60 text-sm font-medium uppercase tracking-wider">{teamB.name}</div>
-              <div className="text-5xl font-bold text-white leading-none">{state.scores.B}</div>
+              <div className="text-5xl font-bold text-white leading-none">{state?.scores?.B || 0}</div>
               <button 
                 className={`font-bold py-3 px-4 rounded-xl shadow-lg transition-all duration-200 w-full text-sm ${
                   game.state.isRunning && state.phase.type === "quarter"
