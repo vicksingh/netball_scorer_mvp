@@ -229,7 +229,7 @@ function GamePageContent() {
           if (user?.isAnonymous) {
             // For guest users, if we can load the game from local storage, they own it
             setGame(loadedGame);
-          } else if (loadedGame.ownerId !== user?.uid) {
+          } else if (loadedGame.userId !== user?.uid) {
             // For registered users, check if they own the game
             setShouldRedirectToView(true);
             return;
@@ -265,7 +265,7 @@ function GamePageContent() {
             if (user?.isAnonymous) {
               // For guest users, if we can load the game from local storage, they own it
               setGame(loadedGame);
-            } else if (loadedGame.ownerId !== user?.uid) {
+            } else if (loadedGame.userId !== user?.uid) {
               // For registered users, check if they own the game
               setShouldRedirectToView(true);
               return;
@@ -424,7 +424,10 @@ function GamePageContent() {
     }
   }
   
-  const { teamA, teamB, state, settings } = game;
+  const teamA = game?.teamA;
+  const teamB = game?.teamB;
+  const state = game?.state;
+  const settings = game?.settings;
   const leadingTeamName = (state?.scores?.A || 0) > (state?.scores?.B || 0) ? (teamA?.name || 'Team A') : (teamB?.name || 'Team B');
   const winnerText = (state?.scores?.A || 0) === (state?.scores?.B || 0) ? "IT'S A DRAW" : `${leadingTeamName} WINS!`;
   const isDraw = (state?.scores?.A || 0) === (state?.scores?.B || 0);
@@ -1151,7 +1154,7 @@ function GamePageContent() {
                         </div>
                         <div class="text-white/40 text-2xl font-bold">-</div>
                         <div class="text-center">
-                          <div class="text-red-300 text-sm font-medium">${teamB.name}</div>
+                          <div class="text-red-300 text-sm font-medium">${teamB?.name || 'Team B'}</div>
                           <div class="text-white text-3xl font-bold">${game?.state?.scores?.B || 0}</div>
                         </div>
                       </div>
@@ -1163,12 +1166,12 @@ function GamePageContent() {
                         <div class="text-white/60 text-sm font-medium uppercase tracking-wider">Game Duration</div>
                       </div>
                       <div class="text-center">
-                        <div class="text-white text-2xl font-bold">${msToClock(state.elapsedMs)}</div>
+                        <div class="text-white text-2xl font-bold">${msToClock(state?.elapsedMs || 0)}</div>
                       </div>
                     </div>
                     
                     <!-- Quarters Breakdown -->
-                    ${state.quarterScores ? `
+                    ${state?.quarterScores ? `
                     <div class="bg-slate-900 rounded-xl p-4 mb-4 border border-slate-600/30">
                       <div class="text-center mb-3">
                         <div class="text-white/60 text-sm font-medium uppercase tracking-wider">Quarters Breakdown</div>
@@ -1185,8 +1188,8 @@ function GamePageContent() {
                           <div class="text-center">
                             <div class="text-slate-400 text-xs font-medium mb-2">Q${quarter}</div>
                             <div class="space-y-1">
-                              <div class="text-white text-sm font-bold h-6 flex items-center justify-center">${state.quarterScores[quarter]?.A || 0}</div>
-                              <div class="text-white text-sm font-bold h-6 flex items-center justify-center">${state.quarterScores[quarter]?.B || 0}</div>
+                              <div class="text-white text-sm font-bold h-6 flex items-center justify-center">${state?.quarterScores?.[quarter]?.A || 0}</div>
+                              <div class="text-white text-sm font-bold h-6 flex items-center justify-center">${state?.quarterScores?.[quarter]?.B || 0}</div>
                             </div>
                           </div>
                         `).join('')}
@@ -1213,7 +1216,7 @@ function GamePageContent() {
                         </div>
                         <div class="flex justify-between">
                           <span class="text-white/60">Game Status:</span>
-                          <span class="text-white">${state.isRunning ? 'Running' : 'Paused'}</span>
+                          <span class="text-white">${state?.isRunning ? 'Running' : 'Paused'}</span>
                         </div>
                       </div>
                     </div>

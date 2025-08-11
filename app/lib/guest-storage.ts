@@ -103,7 +103,7 @@ export interface SyncQueueItem {
 }
 
 // Generate a unique device ID for this browser/device
-function getDeviceId(): string {
+export function getDeviceId(): string {
   if (!isClient) {
     return 'guest_device_id_placeholder'; // Placeholder for server-side
   }
@@ -207,8 +207,9 @@ export function loadGuestGame(gameId: string): GuestGame | null {
     const saved = localStorage.getItem(`guest_game_${gameId}`);
     if (saved) {
       const game = JSON.parse(saved) as GuestGame;
-      // Verify this game belongs to the current device
-      if (game.deviceId === getDeviceId()) {
+      // For public games, allow access regardless of device ID
+      // For private games, verify this game belongs to the current device
+      if (game.sharePublic || game.deviceId === getDeviceId()) {
         return game;
       }
     }
@@ -521,8 +522,9 @@ export function loadHybridGuestGame(gameId: string): HybridGuestGame | null {
     const saved = localStorage.getItem(`hybrid_guest_game_${gameId}`);
     if (saved) {
       const game = JSON.parse(saved) as HybridGuestGame;
-      // Verify this game belongs to the current device
-      if (game.deviceId === getDeviceId()) {
+      // For public games, allow access regardless of device ID
+      // For private games, verify this game belongs to the current device
+      if (game.sharePublic || game.deviceId === getDeviceId()) {
         return game;
       }
     }

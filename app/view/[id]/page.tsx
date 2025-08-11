@@ -31,6 +31,7 @@ export default function ViewGamePage() {
   const [loading, setLoading] = useState(true);
   const [lastUpdateTime, setLastUpdateTime] = useState<number>(0);
   const [updateSource, setUpdateSource] = useState<'firebase' | 'local' | 'hybrid'>('firebase');
+  const [debugInfo, setDebugInfo] = useState<string>('');
   
   // Refs for cleanup and optimization
   const unsubscribeRef = useRef<(() => void) | null>(null);
@@ -43,38 +44,85 @@ export default function ViewGamePage() {
     
     let isMounted = true;
     
+    // Enhanced debugging function
+    const addDebugInfo = (message: string) => {
+      if (isMounted) {
+        setDebugInfo(prev => prev + '\n' + new Date().toLocaleTimeString() + ': ' + message);
+        console.log(`[DEBUG] ${message}`);
+      }
+    };
+    
+    addDebugInfo(`Starting game lookup for ID: ${id}`);
+    
     // Function to update game state efficiently
+    // Convert guest game data to the format expected by the view page
+    const convertGuestGameToViewFormat = (guestGame: any) => {
+      // Ensure the game has the expected structure
+      if (!guestGame.state) {
+        console.warn('Guest game missing state, creating default state');
+        guestGame.state = {
+          phase: { type: 'quarter', index: 1 },
+          isRunning: false,
+          phaseStartedAt: null,
+          elapsedMs: 0,
+          scores: { A: 0, B: 0 },
+          quarterScores: { 1: { A: 0, B: 0 } },
+          centrePass: 'A',
+          lastGoal: null,
+        };
+      }
+      
+      // Ensure phase object exists
+      if (!guestGame.state.phase) {
+        console.warn('Guest game missing phase, creating default phase');
+        guestGame.state.phase = { type: 'quarter', index: 1 };
+      }
+      
+      return guestGame;
+    };
+
     const updateGameState = (newGame: any, source: 'firebase' | 'local' | 'hybrid') => {
       if (!isMounted) return;
       
+      // Convert guest games to expected format
+      let processedGame = newGame;
+      if (source === 'local' || source === 'hybrid') {
+        processedGame = convertGuestGameToViewFormat(newGame);
+      }
+      
       // Only update if there are actual changes to prevent unnecessary re-renders
-      if (JSON.stringify(newGame) !== JSON.stringify(lastGameStateRef.current)) {
-        setGame(newGame);
+      if (JSON.stringify(processedGame) !== JSON.stringify(lastGameStateRef.current)) {
+        setGame(processedGame);
         setLastUpdateTime(Date.now());
         setUpdateSource(source);
-        lastGameStateRef.current = newGame;
-        console.log(`Game updated from ${source}:`, newGame);
+        lastGameStateRef.current = processedGame;
+        addDebugInfo(`Game updated from ${source}: ${processedGame?.teamA?.name} vs ${processedGame?.teamB?.name}`);
       }
     };
 
     // First try to load from Firebase for real-time updates
     const loadGameFromFirebase = async () => {
       try {
-        console.log(`Attempting to load game ${id} from Firebase...`);
+        addDebugInfo(`Attempting to load game ${id} from Firebase...`);
         const loadedGame = await getPublicGame(id);
         if (loadedGame && isMounted) {
-          console.log('Game loaded successfully from Firebase');
+          addDebugInfo('Game loaded successfully from Firebase');
           updateGameState(loadedGame, 'firebase');
           setLoading(false);
           return; // Found in Firebase, no need to check local storage
         }
         
-        console.log('Game not found in Firebase, checking local storage...');
+        addDebugInfo('Game not found in Firebase, checking local storage...');
         
         // If not found in Firebase, try local storage for guest games
         const hybridGuestGame = loadHybridGuestGame(id);
+        addDebugInfo(`Hybrid guest game lookup result: ${hybridGuestGame ? 'Found' : 'Not found'}`);
+        if (hybridGuestGame) {
+          addDebugInfo(`Hybrid game sharePublic: ${hybridGuestGame.sharePublic}`);
+        }
+        
         if (hybridGuestGame && hybridGuestGame.sharePublic) {
-          console.log('Found hybrid guest game in local storage');
+          addDebugInfo('Found hybrid guest game in local storage');
           updateGameState(hybridGuestGame, 'hybrid');
           setLoading(false);
           isHybridGameRef.current = true;
@@ -83,43 +131,52 @@ export default function ViewGamePage() {
         
         // Try regular guest game as fallback
         const guestGame = loadGuestGame(id);
+        addDebugInfo(`Regular guest game lookup result: ${guestGame ? 'Found' : 'Not found'}`);
+        if (guestGame) {
+          addDebugInfo(`Guest game sharePublic: ${guestGame.sharePublic}`);
+        }
+        
         if (guestGame && guestGame.sharePublic) {
-          console.log('Found regular guest game in local storage');
+          addDebugInfo('Found regular guest game in local storage');
           updateGameState(guestGame, 'local');
           setLoading(false);
           return; // Found in local storage
         }
         
         // Game not found anywhere
-        console.log('Game not found in Firebase or local storage');
+        addDebugInfo('Game not found in Firebase or local storage');
         if (isMounted) {
           setGameNotFound(true);
           setLoading(false);
         }
       } catch (error) {
+        addDebugInfo(`Error loading game from Firebase: ${error}`);
         console.error('Error loading game from Firebase:', error);
         
         // Log specific error details for debugging
         if (error instanceof Error) {
           if (error.message.includes('Target ID already exists')) {
+            addDebugInfo('Firebase "Target ID already exists" error detected');
             console.error('Firebase "Target ID already exists" error detected. This usually means:');
             console.error('1. Multiple Firebase app instances are running');
             console.error('2. Firebase configuration conflict');
             console.error('3. Firebase app initialization issue');
             console.error('4. Firebase rules preventing access');
           } else if (error.message.includes('permission-denied')) {
+            addDebugInfo('Firebase permission denied. Check security rules.');
             console.error('Firebase permission denied. Check security rules.');
           } else if (error.message.includes('not-found')) {
+            addDebugInfo('Game document not found in Firebase.');
             console.error('Game document not found in Firebase.');
           }
         }
         
-        console.log('Falling back to local storage due to Firebase error...');
+        addDebugInfo('Falling back to local storage due to Firebase error...');
         
         // Try local storage as fallback
         const hybridGuestGame = loadHybridGuestGame(id);
         if (hybridGuestGame && hybridGuestGame.sharePublic && isMounted) {
-          console.log('Found hybrid guest game in local storage as fallback');
+          addDebugInfo('Found hybrid guest game in local storage as fallback');
           updateGameState(hybridGuestGame, 'hybrid');
           setLoading(false);
           isHybridGameRef.current = true;
@@ -128,13 +185,13 @@ export default function ViewGamePage() {
         
         const guestGame = loadGuestGame(id);
         if (guestGame && guestGame.sharePublic && isMounted) {
-          console.log('Found regular guest game in local storage as fallback');
+          addDebugInfo('Found regular guest game in local storage as fallback');
           updateGameState(guestGame, 'local');
           setLoading(false);
           return;
         }
         
-        console.log('Game not found in local storage either');
+        addDebugInfo('Game not found in local storage either');
         if (isMounted) {
           setGameNotFound(true);
           setLoading(false);
@@ -352,6 +409,58 @@ export default function ViewGamePage() {
         </div>
       </header>
 
+      {/* Debug Info - Only show in development */}
+      {process.env.NODE_ENV === 'development' && debugInfo && (
+        <div className="max-w-[1140px] mx-auto px-4 py-4">
+          <div className="bg-red-500/20 border border-red-500/30 rounded-xl p-4">
+            <div className="flex items-center space-x-3 mb-2">
+              <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              <div className="text-red-200 text-sm font-semibold">DEBUG INFO</div>
+              <button 
+                onClick={() => {
+                  console.log('=== MANUAL DEBUG TEST ===');
+                  console.log('Current game ID:', id);
+                  console.log('Current game state:', game);
+                  console.log('Game not found state:', gameNotFound);
+                  console.log('Loading state:', loading);
+                  
+                  // Test local storage directly
+                  if (typeof window !== 'undefined') {
+                    const hybridGame = localStorage.getItem(`hybrid_guest_game_${id}`);
+                    const regularGame = localStorage.getItem(`guest_game_${id}`);
+                    console.log('Direct localStorage check:');
+                    console.log('Hybrid game:', hybridGame);
+                    console.log('Regular game:', regularGame);
+                    
+                    if (hybridGame) {
+                      const parsed = JSON.parse(hybridGame);
+                      console.log('Parsed hybrid game:', parsed);
+                      console.log('sharePublic:', parsed.sharePublic);
+                      console.log('deviceId:', parsed.deviceId);
+                    }
+                    
+                    if (regularGame) {
+                      const parsed = JSON.parse(regularGame);
+                      console.log('Parsed regular game:', parsed);
+                      console.log('sharePublic:', parsed.sharePublic);
+                      console.log('deviceId:', parsed.deviceId);
+                    }
+                  }
+                }}
+                className="ml-auto px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-xs rounded transition-colors"
+              >
+                Test Debug
+              </button>
+            </div>
+            <pre className="text-red-200 text-xs whitespace-pre-wrap font-mono bg-red-500/20 p-3 rounded-lg max-h-40 overflow-y-auto">
+              {debugInfo}
+            </pre>
+          </div>
+        </div>
+      )}
+
       {/* Main Scoreboard */}
       <div className="max-w-[1140px] mx-auto px-4 py-6">
         {/* Update Source Banner */}
@@ -387,14 +496,14 @@ export default function ViewGamePage() {
         <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20 shadow-lg mb-4">
           <div className="text-center">
             <div className="text-white/60 text-sm font-medium uppercase tracking-wider mb-2">
-              {state.phase.type === "quarter" ? `QUARTER ${state.phase.index}` : 
-               state.phase.type === "break" ? `BREAK ${state.phase.index}` : "FULL TIME"}
+              {state?.phase?.type === "quarter" ? `QUARTER ${state.phase.index || 1}` : 
+               state?.phase?.type === "break" ? `BREAK ${state.phase.index || 1}` : "FULL TIME"}
             </div>
             <div className="text-6xl font-bold text-white tabular-nums leading-none">
               {msToClock(left)}
             </div>
             <div className="text-white/60 text-sm mt-2">
-              {state.isRunning ? "LIVE" : "PAUSED"}
+              {state?.isRunning ? "LIVE" : "PAUSED"}
             </div>
           </div>
         </div>
@@ -404,14 +513,14 @@ export default function ViewGamePage() {
           <div className="grid grid-cols-2 items-center text-center gap-4">
             {/* Team A */}
             <div className="space-y-4">
-              <div className="text-white/60 text-sm font-medium uppercase tracking-wider">{teamA.name}</div>
-              <div className="text-5xl font-bold text-white leading-none">{state.scores.A}</div>
+              <div className="text-white/60 text-sm font-medium uppercase tracking-wider">{teamA?.name || 'Team A'}</div>
+              <div className="text-5xl font-bold text-white leading-none">{state?.scores?.A || 0}</div>
             </div>
 
             {/* Team B */}
             <div className="space-y-4">
-              <div className="text-white/60 text-sm font-medium uppercase tracking-wider">{teamB.name}</div>
-              <div className="text-5xl font-bold text-white leading-none">{state.scores.B}</div>
+              <div className="text-white/60 text-sm font-medium uppercase tracking-wider">{teamB?.name || 'Team B'}</div>
+              <div className="text-5xl font-bold text-white leading-none">{state?.scores?.B || 0}</div>
             </div>
           </div>
         </div>

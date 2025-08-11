@@ -41,8 +41,19 @@ function HomeContent() {
   // Show loading state until mounted and auth is ready
   if (!mounted || authLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-900 via-blue-800 to-purple-900 flex items-center justify-center">
-        <div className="text-white text-xl">Loading...</div>
+      <div className="min-h-screen bg-gradient-to-br from-blue-900 via-blue-800 to-purple-900">
+        {/* Header */}
+        <header className="bg-black/20 backdrop-blur-sm border-b border-white/10">
+          <div className="max-w-[1140px] mx-auto p-4">
+            <h1 className="text-white font-bold text-2xl">Scozo</h1>
+            <p className="text-white/60 text-sm">Netball Scorer</p>
+          </div>
+        </header>
+        
+        {/* Loading Content */}
+        <div className="max-w-[1140px] mx-auto p-4 flex items-center justify-center min-h-[calc(100vh-120px)]">
+          <div className="text-white text-xl">Loading...</div>
+        </div>
       </div>
     );
   }
@@ -69,7 +80,7 @@ function HomeContent() {
 
   // Show main content for authenticated users
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-900 via-blue-800 to-purple-900" suppressHydrationWarning>
+    <div className="min-h-screen bg-gradient-to-br from-blue-900 via-blue-800 to-purple-900">
       <PWAInstallPrompt />
       {/* Header */}
       <div className="bg-white/10 backdrop-blur-sm border-b border-white/20">
