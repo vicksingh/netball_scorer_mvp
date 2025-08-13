@@ -168,19 +168,25 @@ export default function ViewGamePage() {
         }`}>
           <div className="text-center">
             <div className="text-white/60 text-sm font-medium uppercase tracking-wider mb-2">
-              {state?.phase?.type === "quarter" ? `QUARTER ${state.phase.index || 1}` : state?.phase?.type === "break" ? `BREAK ${state.phase.index || 1}` : "FULL TIME"}
+              {mounted && state?.phase?.type === "quarter" ? `QUARTER ${state.phase.index || 1}` : 
+               mounted && state?.phase?.type === "break" ? `BREAK ${state.phase.index || 1}` : 
+               mounted ? "FULL TIME" : "Loading..."}
             </div>
-            <div className={`text-6xl font-bold text-white tabular-nums leading-none transition-all duration-500 ${
-              left <= 30000 && left > 0
-                ? 'text-red-100 drop-shadow-lg'
-                : 'text-white'
-            }`}>{msToClock(left)}</div>
-            <div className="text-white/60 text-sm mt-2">{state?.isRunning ? "LIVE" : "PAUSED"}</div>
+            {mounted ? (
+              <div className={`text-6xl font-bold text-white tabular-nums leading-none transition-all duration-500 ${
+                left <= 30000 && left > 0
+                  ? 'text-red-100 drop-shadow-lg'
+                  : 'text-white'
+              }`}>{msToClock(left)}</div>
+            ) : (
+              <div className="text-6xl font-bold text-white tabular-nums leading-none">--:--</div>
+            )}
+            <div className="text-white/60 text-sm mt-2">{mounted ? (state?.isRunning ? "LIVE" : "PAUSED") : "Loading..."}</div>
           </div>
         </div>
 
         {/* Centre Pass Indicator - Only show during quarters */}
-        {state?.phase?.type === "quarter" && (
+        {mounted && state?.phase?.type === "quarter" && (
           <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/20 shadow-lg mb-4">
             <div className="flex items-center justify-center">
               <div className="text-center">
@@ -198,18 +204,18 @@ export default function ViewGamePage() {
         <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20 shadow-lg">
           <div className="grid grid-cols-2 items-center text-center gap-4">
             <div className="space-y-4">
-              <div className="text-white/60 text-sm font-medium uppercase tracking-wider">{teamA?.name || "Team A"}</div>
-              <div className="text-5xl font-bold text-white leading-none">{state?.scores?.A || 0}</div>
+              <div className="text-white/60 text-sm font-medium uppercase tracking-wider">{mounted ? (teamA?.name || "Team A") : "Team A"}</div>
+              <div className="text-5xl font-bold text-white leading-none">{mounted ? (state?.scores?.A || 0) : 0}</div>
             </div>
             <div className="space-y-4">
-              <div className="text-white/60 text-sm font-medium uppercase tracking-wider">{teamB?.name || "Team B"}</div>
-              <div className="text-5xl font-bold text-white leading-none">{state?.scores?.B || 0}</div>
+              <div className="text-white/60 text-sm font-medium uppercase tracking-wider">{mounted ? (teamB?.name || "Team B") : "Team B"}</div>
+              <div className="text-5xl font-bold text-white leading-none">{mounted ? (state?.scores?.B || 0) : 0}</div>
             </div>
           </div>
         </div>
 
         <div className="text-center mt-4">
-          <div className="text-slate-400 text-xs">Last updated: {lastUpdateTime ? new Date(lastUpdateTime).toLocaleTimeString() : "Never"} • Source: Firebase Real-time</div>
+          <div className="text-slate-400 text-xs">Last updated: {mounted && lastUpdateTime ? new Date(lastUpdateTime).toLocaleTimeString() : "Never"} • Source: Firebase Real-time</div>
         </div>
       </div>
     </div>

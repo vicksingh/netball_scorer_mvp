@@ -84,6 +84,13 @@ function GamePageContent() {
   const [showWinnerOverlay, setShowWinnerOverlay] = useState(false);
   const [showGameEndedBanner, setShowGameEndedBanner] = useState(false);
   
+  // Hydration safety - prevent server/client mismatch
+  const [mounted, setMounted] = useState(false);
+  
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  
   // Safe setGame function that validates state before updating
   const safeSetGame = (newGame: any) => {
     if (!newGame) {
@@ -150,88 +157,73 @@ function GamePageContent() {
   const advancePhase = useCallback(async () => {
     if (!game?.state) return;
     
+    // Prevent multiple simultaneous phase advancements
+    if (game._isAdvancing) {
+      console.log('Phase advancement already in progress, skipping...');
+      return;
+    }
+    
+    // Mark that we're advancing
+    game._isAdvancing = true;
+    
     console.log('=== ADVANCE PHASE DEBUG ===');
     console.log('advancePhase called, current phase:', game?.state?.phase);
     console.log('Current game state:', game?.state);
     console.log('Current settings:', game?.settings);
     
-    const np = nextPhase(game?.state?.phase, game?.settings);
-    console.log('Next phase calculated:', np);
-    
-    // Only auto-start timer when naturally transitioning between phases
-    // If user manually paused, respect that pause state
-    const shouldAutoStart = 
-      (game?.state?.phase?.type === "quarter" && np.type === "break") ||
-      (game?.state?.phase?.type === "break" && np.type === "quarter");
-    
-    // Preserve the user's manual pause state unless it's a natural phase transition
-    const newIsRunning = shouldAutoStart ? true : game?.state?.isRunning;
-    
-    console.log('Should auto-start timer:', shouldAutoStart);
-    console.log('New running state:', newIsRunning);
-    
-    const updatedGame = await updateGameOptimized(id, {
-      state: {
-        ...game?.state,
-        phase: np,
-        isRunning: newIsRunning, // Respect manual pause or auto-start for natural transitions
-        elapsedMs: 0,
-        phaseStartedAt: new Date().toISOString(),
-      }
-    });
-    console.log('Updated game for advance:', updatedGame);
-    if (updatedGame) safeSetGame(updatedGame);
-    console.log('=== END ADVANCE PHASE DEBUG ===');
+    try {
+      const np = nextPhase(game?.state?.phase, game?.settings);
+      console.log('Next phase calculated:', np);
+      
+      // Only auto-start timer when naturally transitioning between phases
+      // If user manually paused, respect that pause state
+      const shouldAutoStart = 
+        (game?.state?.phase?.type === "quarter" && np.type === "break") ||
+        (game?.state?.phase?.type === "break" && np.type === "quarter");
+      
+      // Preserve the user's manual pause state unless it's a natural phase transition
+      const newIsRunning = shouldAutoStart ? true : game?.state?.isRunning;
+      
+      console.log('Should auto-start timer:', shouldAutoStart);
+      console.log('New running state:', newIsRunning);
+      
+      const updatedGame = await updateGameOptimized(id, {
+        state: {
+          ...game?.state,
+          phase: np,
+          isRunning: newIsRunning, // Respect manual pause or auto-start for natural transitions
+          elapsedMs: 0,
+          phaseStartedAt: new Date().toISOString(),
+        }
+      });
+      console.log('Updated game for advance:', updatedGame);
+      if (updatedGame) safeSetGame(updatedGame);
+      console.log('=== END ADVANCE PHASE DEBUG ===');
+    } finally {
+      // Always clear the advancing flag
+      game._isAdvancing = false;
+    }
   }, [id, game]);
 
-  // Handle phase advancement after advancePhase is defined
-  useEffect(() => {
-    if (!game?.state?.phaseStartedAt) return;
-    
-    console.log('Phase advancement check:', {
-      isExpired,
-      phase: game?.state?.phase,
-      phaseStartedAt: game?.state?.phaseStartedAt,
-      remainingMs: remainingMs
-    });
-    
-    if (isExpired) {
-      // Use zero grace for final quarter so it advances immediately
-      const isFinalQuarter =
-        game?.state?.phase?.type === "quarter" &&
-        game?.state?.phase?.index === game?.settings?.numQuarters;
-      const graceMs = isFinalQuarter ? 0 : 5000; // 5s grace otherwise
-      const startedAt = new Date(game?.state?.phaseStartedAt).getTime();
-      const elapsed = Date.now() - startedAt;
-      const expectedDuration = (game?.state?.phase && game?.settings) ? phaseDurationMs(game?.state?.phase, game?.settings) : 0;
+  // Phase advancement is now handled by the consolidated timer below
 
-      console.log('Phase expired, checking advancement:', {
-        isFinalQuarter,
-        graceMs,
-        startedAt,
-        elapsed,
-        expectedDuration,
-        shouldAdvance: elapsed >= expectedDuration + graceMs
-      });
-
-      if (elapsed >= expectedDuration + graceMs) {
-        console.log('Phase expired (after grace), advancing to next phase');
-        advancePhase();
-      }
-    }
-  }, [isExpired, game?.state?.phaseStartedAt, game?.state?.phase, game?.settings, advancePhase, remainingMs]);
-
-  // Continuous phase advancement timer - runs every second to check for expired phases
+  // Single, consolidated phase advancement timer - runs every second to check for expired phases
   useEffect(() => {
     if (!game?.state?.phaseStartedAt || !game?.state?.phase || !game?.settings) return;
     
+    // Prevent multiple simultaneous phase advancements
+    let isAdvancing = false;
+    
     const checkPhaseExpiry = () => {
+      // Don't check if we're already advancing a phase
+      if (isAdvancing) return;
+      
       const now = Date.now();
       const startedAt = new Date(game.state.phaseStartedAt).getTime();
       const elapsed = now - startedAt;
       const expectedDuration = phaseDurationMs(game.state.phase, game.settings);
       
-      console.log('Continuous phase check:', {
+      console.log('Phase check:', {
         phase: game.state.phase,
         startedAt,
         elapsed,
@@ -242,10 +234,16 @@ function GamePageContent() {
       });
       
       // Only advance phases that have naturally expired
-      // Don't interfere with manually paused phases
       if (elapsed >= expectedDuration) {
         console.log('Phase naturally expired, advancing automatically...');
-        advancePhase();
+        isAdvancing = true;
+        
+        // Use setTimeout to prevent immediate re-execution
+        setTimeout(() => {
+          advancePhase().finally(() => {
+            isAdvancing = false;
+          });
+        }, 100);
       }
     };
     
@@ -787,16 +785,18 @@ function GamePageContent() {
             </div>
             <div>
               <h1 className="text-white font-semibold text-lg tracking-wide">ScoZo - Live Match</h1>
-              <p className="text-slate-300 text-xs">{new Date().toLocaleDateString('en-US', { 
-                weekday: 'short', 
-                year: 'numeric', 
-                month: 'short', 
-                day: 'numeric' 
-              })} - {new Date().toLocaleTimeString('en-US', {
-                hour: '2-digit',
-                minute: '2-digit',
-                hour12: false
-              })}</p>
+              {mounted && (
+                <p className="text-slate-300 text-xs">{new Date().toLocaleDateString('en-US', { 
+                  weekday: 'short', 
+                  year: 'numeric', 
+                  month: 'short', 
+                  day: 'numeric' 
+                })} - {new Date().toLocaleTimeString('en-US', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  hour12: false
+                })}</p>
+              )}
               {/* Sync Status Indicator */}
               {user?.isAnonymous && isHybridGuestGame(id) && (
                 <div className="flex items-center space-x-2 mt-1">
@@ -899,18 +899,24 @@ function GamePageContent() {
           <div className="flex items-end justify-between">
             <div className="text-left">
               <div className="text-white/60 text-sm font-medium uppercase tracking-wider mb-1">
-                {state?.phase?.type === "quarter" ? `QUARTER ${state?.phase?.index}` : 
-                 state?.phase?.type === "break" ? 
+                {mounted && state?.phase?.type === "quarter" ? `QUARTER ${state?.phase?.index}` : 
+                 mounted && state?.phase?.type === "break" ? 
                    (state?.phase?.index === 2 ? "HALF TIME" : `BREAK ${state?.phase?.index}`) : 
-                 "FULL TIME - Game Ended"}
+                 mounted ? "FULL TIME - Game Ended" : "Loading..."}
               </div>
-              <div className={`text-6xl font-bold tabular-nums leading-none transition-all duration-500 ${
-                remainingMs <= 30000 && remainingMs > 0
-                  ? 'text-red-100 drop-shadow-lg'
-                  : 'text-white'
-              }`}>
-                {msToClock(remainingMs)}
-              </div>
+              {mounted ? (
+                <div className={`text-6xl font-bold tabular-nums leading-none transition-all duration-500 ${
+                  remainingMs <= 30000 && remainingMs > 0
+                    ? 'text-red-100 drop-shadow-lg'
+                    : 'text-white'
+                }`}>
+                  {msToClock(remainingMs)}
+                </div>
+              ) : (
+                <div className="text-6xl font-bold tabular-nums leading-none text-white">
+                  --:--
+                </div>
+              )}
             </div>
             <button 
               className={`font-bold py-2 px-4 rounded-lg transition-all duration-200 text-sm ${
@@ -933,7 +939,7 @@ function GamePageContent() {
         </div>
 
         {/* Centre Pass Indicator */}
-        {state?.phase?.type === "quarter" && (
+        {mounted && state?.phase?.type === "quarter" && (
           <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/20 shadow-lg mb-6">
             <div className="flex items-center justify-between">
               <div className="text-left">
@@ -969,8 +975,8 @@ function GamePageContent() {
           <div className="grid grid-cols-3 items-center text-center gap-4">
             {/* Team A */}
             <div className="space-y-4">
-              <div className="text-white/60 text-sm font-medium uppercase tracking-wider">{teamA?.name || 'Team A'}</div>
-              <div className="text-5xl font-bold text-white leading-none">{game?.state?.scores?.A || 0}</div>
+              <div className="text-white/60 text-sm font-medium uppercase tracking-wider">{mounted ? (teamA?.name || 'Team A') : 'Team A'}</div>
+              <div className="text-5xl font-bold text-white leading-none">{mounted ? (game?.state?.scores?.A || 0) : 0}</div>
               <button 
                 className={`font-bold py-3 px-4 rounded-xl shadow-lg transition-all duration-200 w-full text-sm ${
                   game?.state?.isRunning && game?.state?.phase?.type === "quarter"
@@ -1127,8 +1133,8 @@ function GamePageContent() {
 
             {/* Team B */}
             <div className="space-y-4">
-              <div className="text-white/60 text-sm font-medium uppercase tracking-wider">{teamB?.name || 'Team B'}</div>
-              <div className="text-5xl font-bold text-white leading-none">{state?.scores?.B || 0}</div>
+              <div className="text-white/60 text-sm font-medium uppercase tracking-wider">{mounted ? (teamB?.name || 'Team B') : 'Team B'}</div>
+              <div className="text-5xl font-bold text-white leading-none">{mounted ? (state?.scores?.B || 0) : 0}</div>
               <button 
                 className={`font-bold py-3 px-4 rounded-xl shadow-lg transition-all duration-200 w-full text-sm ${
                   game?.state?.isRunning && state?.phase?.type === "quarter"
@@ -1154,18 +1160,27 @@ function GamePageContent() {
             <div className="bg-slate-800/60 rounded-lg p-3 border border-slate-600/30">
               <div className="text-slate-400 text-xs font-medium mb-2">Teams</div>
               <div className="space-y-1">
-                <div className="text-blue-300 text-xs font-medium h-6 flex items-center">{teamA?.name || 'Team A'}</div>
-                <div className="text-red-300 text-xs font-medium h-6 flex items-center">{teamB?.name || 'Team B'}</div>
+                <div className="text-blue-300 text-xs font-medium h-6 flex items-center">{mounted ? (teamA?.name || 'Team A') : 'Team A'}</div>
+                <div className="text-red-300 text-xs font-medium h-6 flex items-center">{mounted ? (teamB?.name || 'Team B') : 'Team B'}</div>
               </div>
             </div>
             
             {/* Quarter Columns */}
-            {[1, 2, 3, 4].map((quarter) => (
+            {mounted && [1, 2, 3, 4].map((quarter) => (
               <div key={quarter} className="bg-slate-800/60 rounded-lg p-3 border border-slate-600/30">
                 <div className="text-slate-400 text-xs font-medium mb-2">Q{quarter}</div>
                 <div className="space-y-1">
                   <div className="text-white text-sm font-bold h-6 flex items-center">{game?.state?.quarterScores?.[quarter]?.A || 0}</div>
                   <div className="text-white text-sm font-bold h-6 flex items-center">{game?.state?.quarterScores?.[quarter]?.B || 0}</div>
+                </div>
+              </div>
+            ))}
+            {!mounted && [1, 2, 3, 4].map((quarter) => (
+              <div key={quarter} className="bg-slate-800/60 rounded-lg p-3 border border-slate-600/30">
+                <div className="text-slate-400 text-xs font-medium mb-2">Q{quarter}</div>
+                <div className="space-y-1">
+                  <div className="text-white text-sm font-bold h-6 flex items-center">0</div>
+                  <div className="text-white text-sm font-bold h-6 flex items-center">0</div>
                 </div>
               </div>
             ))}
