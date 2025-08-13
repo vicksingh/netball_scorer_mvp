@@ -64,17 +64,36 @@ export function AuthProvider({ children }: AuthProviderProps) {
     
     const auth = getFirebaseAuth();
     if (!auth) {
-      console.warn('Firebase auth not available');
-      setLoading(false);
-      return;
+      console.warn('Firebase auth not available - retrying in 500ms');
+      // Retry after a delay in case Firebase is still initializing
+      const retryTimer = setTimeout(() => {
+        const retryAuth = getFirebaseAuth();
+        if (retryAuth) {
+          const unsubscribe = onAuthStateChanged(retryAuth, (user) => {
+            setUser(user);
+            setLoading(false);
+          });
+          return unsubscribe;
+        } else {
+          console.error('Firebase auth still not available after retry');
+          setLoading(false);
+        }
+      }, 500);
+      
+      return () => clearTimeout(retryTimer);
     }
 
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUser(user);
-      setLoading(false);
-    });
+    // Add a small delay to ensure Firebase is fully initialized
+    const timer = setTimeout(() => {
+      const unsubscribe = onAuthStateChanged(auth, (user) => {
+        setUser(user);
+        setLoading(false);
+      });
 
-    return unsubscribe;
+      return unsubscribe;
+    }, 100); // 100ms delay
+
+    return () => clearTimeout(timer);
   }, []);
 
   // Don't render children until mounted to prevent hydration mismatch

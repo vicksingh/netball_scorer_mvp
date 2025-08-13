@@ -52,7 +52,10 @@ function HomeContent() {
         
         {/* Loading Content */}
         <div className="max-w-[1140px] mx-auto p-4 flex items-center justify-center min-h-[calc(100vh-120px)]">
-          <div className="text-white text-xl">Loading...</div>
+          <div className="text-center">
+            <div className="text-white text-xl mb-2">Loading...</div>
+            <div className="text-white/60 text-sm">Connecting to Firebase...</div>
+          </div>
         </div>
       </div>
     );
@@ -133,7 +136,7 @@ function HomeContent() {
         <RecentMatches />
         
         {/* Guest User Info - Only show when we have actual guest data */}
-        {user.isAnonymous && mounted && guestInfo && guestInfo.deviceId !== 'guest_device_id_placeholder' && (
+        {user.isAnonymous && mounted && !authLoading && guestInfo && guestInfo.deviceId !== 'guest_device_id_placeholder' && (
           <div className="mt-8 text-center">
             <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20 max-w-md mx-auto">
               <h3 className="text-white font-semibold text-lg mb-3">Guest Mode Active</h3>
