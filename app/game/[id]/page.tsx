@@ -395,7 +395,7 @@ function GamePageContent() {
         console.warn('Periodic sync failed:', error);
         setSyncStatus('error');
       }
-    }, 30000); // Sync every 30 seconds
+    }, 5000); // Sync every 5 seconds for real-time feel
 
     return () => clearInterval(syncInterval);
   }, [game, id, user?.isAnonymous]);
@@ -538,7 +538,7 @@ function GamePageContent() {
     });
   }
 
-  // Debounced sync function to prevent too many Firebase calls during rapid scoring
+  // Optimized sync function for real-time updates
   const debouncedSync = (gameId: string, updates: any) => {
     // Clear any pending sync
     if (syncTimeoutRef.current) {
@@ -548,7 +548,7 @@ function GamePageContent() {
     // Store the latest updates
     pendingSyncRef.current = updates;
     
-    // Set a new timeout for sync
+    // Set a new timeout for sync - reduced from 2 seconds to 500ms for real-time feel
     syncTimeoutRef.current = setTimeout(async () => {
       if (pendingSyncRef.current) {
         try {
@@ -558,15 +558,15 @@ function GamePageContent() {
           setLastSyncTime(mounted ? Date.now() : lastSyncTime);
           // Only log in development mode
           if (process.env.NODE_ENV === 'development') {
-            console.log('Debounced sync completed');
+            console.log('Real-time sync completed');
           }
           pendingSyncRef.current = null;
         } catch (error) {
-          console.warn('Debounced sync failed:', error);
+          console.warn('Real-time sync failed:', error);
           setSyncStatus('error');
         }
       }
-    }, 2000); // Wait 2 seconds after last update before syncing
+    }, 500); // Reduced to 500ms for near real-time updates
   };
 
   // Manual sync function for ALL users (not just guest users)
@@ -597,18 +597,32 @@ function GamePageContent() {
   };
 
   // Optimized update function for immediate local updates + background Firebase sync
-  const updateGameOptimized = async (gameId: string, updates: any) => {
+  const updateGameOptimized = async (gameId: string, updates: any, immediateSync = false) => {
     // Immediately update local state for instant UI response
     let updatedGame = null;
     
     if (user?.isAnonymous && isHybridGuestGame(gameId)) {
-      // For hybrid guest games: immediate local update + debounced Firebase sync
-      // Pass the original updates directly - let updateHybridGuestGame handle the merging
+      // For hybrid guest games: immediate local update + Firebase sync
       updatedGame = updateHybridGuestGame(gameId, updates);
       
-      // Use debounced sync for Firebase updates
+      // Use immediate sync for critical updates (scoring), debounced for others
       if (updatedGame) {
-        debouncedSync(gameId, updates);
+        if (immediateSync) {
+          // Immediate sync for critical updates like scoring
+          try {
+            setSyncStatus('syncing');
+            await updateGame(gameId, updates);
+            setSyncStatus('synced');
+            setLastSyncTime(mounted ? Date.now() : lastSyncTime);
+            console.log('Immediate sync completed for critical update');
+          } catch (error) {
+            console.warn('Immediate sync failed:', error);
+            setSyncStatus('error');
+          }
+        } else {
+          // Debounced sync for non-critical updates
+          debouncedSync(gameId, updates);
+        }
       }
     } else if (user?.isAnonymous) {
       // For regular guest games: immediate local update only
@@ -672,8 +686,6 @@ function GamePageContent() {
       stateIsRunning: updatedGame?.state?.isRunning,
     });
     
-
-    
     return updatedGame;
   };
 
@@ -712,7 +724,7 @@ function GamePageContent() {
     
     const updatedGame = await updateGameOptimized(id, {
       state: stateUpdate
-    });
+    }, true); // Use immediate sync for scoring updates
     
     console.log('Updated game for score:', updatedGame);
     if (updatedGame) safeSetGame(updatedGame);
@@ -735,7 +747,7 @@ function GamePageContent() {
           // Set phaseStartedAt when starting the timer
           phaseStartedAt: new Date().toISOString(),
         }
-      });
+      }, true); // Use immediate sync for timer start
       console.log('Updated game for start:', updatedGame);
       if (updatedGame) safeSetGame(updatedGame);
     } else {
@@ -747,7 +759,7 @@ function GamePageContent() {
           isRunning: false,
           elapsedMs: carried,
         }
-      });
+      }, true); // Use immediate sync for timer pause
       console.log('Updated game for pause:', updatedGame);
       if (updatedGame) safeSetGame(updatedGame);
     }
@@ -765,7 +777,7 @@ function GamePageContent() {
         isRunning: false,
         elapsedMs: 0,
       }
-    });
+    }, true); // Use immediate sync for timer reset
     console.log('Updated game for reset:', updatedGame);
     if (updatedGame) safeSetGame(updatedGame);
   }
@@ -916,7 +928,7 @@ function GamePageContent() {
                       ...state,
                       centrePass: state.centrePass === "A" ? "B" : "A",
                     }
-                  });
+                  }, true); // Use immediate sync for centre pass changes
                   console.log('Centre pass toggled:', updatedGame);
                   if (updatedGame) safeSetGame(updatedGame);
                 }}
@@ -981,7 +993,7 @@ function GamePageContent() {
                         lastGoal: null, // Clear last goal
                         phaseStartedAt: mounted ? new Date().toISOString() : game?.state?.phaseStartedAt || new Date().toISOString(),
                       }
-                    });
+                    }, true); // Use immediate sync for game reset
                     console.log('Game reset:', updatedGame);
                     if (updatedGame) safeSetGame(updatedGame);
                   }
@@ -1043,7 +1055,7 @@ function GamePageContent() {
                               scores: { A: scoreA, B: scoreB },
                               lastGoal: null, // Clear last goal when manually editing
                             }
-                          });
+                          }, true); // Use immediate sync for score editing
                           console.log('Scores edited:', updatedGame);
                           if (updatedGame) safeSetGame(updatedGame);
                         }
@@ -1067,7 +1079,7 @@ function GamePageContent() {
                         const updatedGame = await updateGameOptimized(id, {
                           state: {
                             ...state,
-                                                                                      scores: { 
+                            scores: { 
                               A: (state?.scores?.A || 0) - (lastGoal.team === "A" ? 1 : 0), 
                               B: (state?.scores?.B || 0) - (lastGoal.team === "B" ? 1 : 0) 
                             },
@@ -1075,7 +1087,7 @@ function GamePageContent() {
                             centrePass: lastGoal.previousCentrePass, // Restore previous centre pass
                             lastGoal: null, // Clear the last goal
                           }
-                        });
+                        }, true); // Use immediate sync for undo operations
                         console.log('Undone last goal:', updatedGame);
                         if (updatedGame) safeSetGame(updatedGame);
                       }
@@ -1361,10 +1373,6 @@ function GamePageContent() {
             >
               {syncStatus === 'syncing' ? 'Syncing…' : 'Sync Now'}
             </button>
-            <span className="ml-2 pl-2 border-l border-slate-600 flex items-center gap-2">
-              <span className={`w-2 h-2 rounded-full ${typeof window !== 'undefined' && navigator.onLine ? 'bg-emerald-400' : 'bg-red-400'}`}></span>
-              <span>{typeof window !== 'undefined' && navigator.onLine ? 'Online' : 'Offline'}</span>
-            </span>
           </div>
         </div>
       </div>
