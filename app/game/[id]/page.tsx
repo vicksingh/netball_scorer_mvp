@@ -26,10 +26,17 @@ function usePhaseTimer({
   elapsedMs: number;
   phaseDurationMs: number;
 }): TimerState {
-  const [remainingMs, setRemainingMs] = useState(phaseDurationMs);
+  const [remainingMs, setRemainingMs] = useState(0);
   const [isExpired, setIsExpired] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
+    
     let interval: NodeJS.Timeout | null = null;
 
     const updateRemaining = () => {
@@ -59,16 +66,15 @@ function usePhaseTimer({
     // Initial run
     updateRemaining();
 
-    // Always keep updating every second, regardless of game state
-    // This ensures phases advance even when paused
-    if (phaseStartedAt) {
+    // Only start interval if timer is actually running (phaseStartedAt exists and isRunning is true)
+    if (phaseStartedAt && isRunning) {
       interval = setInterval(updateRemaining, 1000);
     }
 
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [isRunning, phaseStartedAt, phaseDurationMs, elapsedMs]);
+  }, [mounted, isRunning, phaseStartedAt, phaseDurationMs, elapsedMs]);
 
   return { remainingMs, isExpired };
 }
@@ -80,7 +86,7 @@ function GamePageContent() {
   const [game, setGame] = useState<any | null>(null);
   const [left, setLeft] = useState(0);
   const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'error'>('synced');
-  const [lastSyncTime, setLastSyncTime] = useState<number>(Date.now());
+  const [lastSyncTime, setLastSyncTime] = useState<number>(0);
   const [showWinnerOverlay, setShowWinnerOverlay] = useState(false);
   const [showGameEndedBanner, setShowGameEndedBanner] = useState(false);
   
@@ -144,10 +150,10 @@ function GamePageContent() {
 
   // Use the custom timer hook with better null safety - must be BEFORE advancePhase
   const { remainingMs, isExpired } = usePhaseTimer({
-    isRunning: game?.state?.isRunning || false,
-    phaseStartedAt: game?.state?.phaseStartedAt || null,
-    elapsedMs: game?.state?.elapsedMs || 0,
-    phaseDurationMs: (game?.state?.phase && game?.settings) ? phaseDurationMs(game?.state?.phase, game?.settings) : 0,
+    isRunning: mounted && game?.state?.isRunning || false,
+    phaseStartedAt: mounted && game?.state?.phaseStartedAt || null,
+    elapsedMs: mounted && game?.state?.elapsedMs || 0,
+    phaseDurationMs: (mounted && game?.state?.phase && game?.settings) ? phaseDurationMs(game?.state?.phase, game?.settings) : 0,
   });
 
   // Guard to avoid auto-advancing on initial mount
@@ -175,25 +181,18 @@ function GamePageContent() {
       const np = nextPhase(game?.state?.phase, game?.settings);
       console.log('Next phase calculated:', np);
       
-      // Only auto-start timer when naturally transitioning between phases
-      // If user manually paused, respect that pause state
-      const shouldAutoStart = 
-        (game?.state?.phase?.type === "quarter" && np.type === "break") ||
-        (game?.state?.phase?.type === "break" && np.type === "quarter");
+      // Don't auto-start timer - respect user's pause state
+      const newIsRunning = game?.state?.isRunning;
       
-      // Preserve the user's manual pause state unless it's a natural phase transition
-      const newIsRunning = shouldAutoStart ? true : game?.state?.isRunning;
-      
-      console.log('Should auto-start timer:', shouldAutoStart);
       console.log('New running state:', newIsRunning);
       
       const updatedGame = await updateGameOptimized(id, {
         state: {
           ...game?.state,
           phase: np,
-          isRunning: newIsRunning, // Respect manual pause or auto-start for natural transitions
+          isRunning: newIsRunning, // Keep the same running state
           elapsedMs: 0,
-          phaseStartedAt: new Date().toISOString(),
+          phaseStartedAt: newIsRunning ? new Date().toISOString() : null, // Only set if running
         }
       });
       console.log('Updated game for advance:', updatedGame);
@@ -209,7 +208,7 @@ function GamePageContent() {
 
   // Single, consolidated phase advancement timer - runs every second to check for expired phases
   useEffect(() => {
-    if (!game?.state?.phaseStartedAt || !game?.state?.phase || !game?.settings) return;
+    if (!game?.state?.phaseStartedAt || !game?.state?.phase || !game?.settings || !game?.state?.isRunning) return;
     
     // Prevent multiple simultaneous phase advancements
     let isAdvancing = false;
@@ -390,7 +389,7 @@ function GamePageContent() {
         setSyncStatus('syncing');
         await updateGame(id, { state: game?.state });
         setSyncStatus('synced');
-        setLastSyncTime(Date.now());
+        setLastSyncTime(mounted ? Date.now() : lastSyncTime);
         console.log('Periodic sync completed for hybrid game');
       } catch (error) {
         console.warn('Periodic sync failed:', error);
@@ -556,7 +555,7 @@ function GamePageContent() {
           setSyncStatus('syncing');
           await updateGame(gameId, pendingSyncRef.current);
           setSyncStatus('synced');
-          setLastSyncTime(Date.now());
+          setLastSyncTime(mounted ? Date.now() : lastSyncTime);
           // Only log in development mode
           if (process.env.NODE_ENV === 'development') {
             console.log('Debounced sync completed');
@@ -586,7 +585,7 @@ function GamePageContent() {
       }
       
       setSyncStatus('synced');
-      setLastSyncTime(Date.now());
+      setLastSyncTime(mounted ? Date.now() : lastSyncTime);
       // Only log in development mode
       if (process.env.NODE_ENV === 'development') {
         console.log('Manual sync completed');
@@ -707,7 +706,7 @@ function GamePageContent() {
       lastGoal: {
         team: team,
         previousCentrePass: game.state.centrePass,
-        timestamp: new Date().toISOString(),
+        timestamp: mounted ? new Date().toISOString() : game?.state?.lastGoal?.timestamp || new Date().toISOString(),
       },
     };
     
@@ -733,15 +732,15 @@ function GamePageContent() {
         state: {
           ...game.state,
           isRunning: true,
-          // Do not reset elapsedMs when resuming; keep carried time
+          // Set phaseStartedAt when starting the timer
           phaseStartedAt: new Date().toISOString(),
         }
       });
       console.log('Updated game for start:', updatedGame);
       if (updatedGame) safeSetGame(updatedGame);
     } else {
-      const startedAt = game.state.phaseStartedAt ? new Date(game.state.phaseStartedAt).getTime() : Date.now();
-      const carried = game.state.elapsedMs + (Date.now() - startedAt);
+      const startedAt = game.state.phaseStartedAt ? new Date(game.state.phaseStartedAt).getTime() : (mounted ? Date.now() : 0);
+      const carried = game.state.elapsedMs + (mounted ? (Date.now() - startedAt) : 0);
       const updatedGame = await updateGameOptimized(id, {
         state: {
           ...game.state,
@@ -910,7 +909,7 @@ function GamePageContent() {
                     ? 'text-red-100 drop-shadow-lg'
                     : 'text-white'
                 }`}>
-                  {msToClock(remainingMs)}
+                  {game?.state?.phaseStartedAt ? msToClock(remainingMs) : msToClock(game?.state?.phase && game?.settings ? phaseDurationMs(game.state.phase, game.settings) : 0)}
                 </div>
               ) : (
                 <div className="text-6xl font-bold tabular-nums leading-none text-white">
@@ -1022,7 +1021,7 @@ function GamePageContent() {
                         },
                         centrePass: "A", // Reset to Team A
                         lastGoal: null, // Clear last goal
-                        phaseStartedAt: new Date().toISOString(),
+                        phaseStartedAt: mounted ? new Date().toISOString() : game?.state?.phaseStartedAt || new Date().toISOString(),
                       }
                     });
                     console.log('Game reset:', updatedGame);
@@ -1240,7 +1239,7 @@ function GamePageContent() {
                   finalScore: game?.state?.scores,
                   quarterScores: game?.state?.quarterScores,
                   duration: msToClock(game?.state?.elapsedMs || 0),
-                  completedAt: new Date().toISOString(),
+                  completedAt: mounted ? new Date().toISOString() : new Date().toISOString(),
                 };
                 console.log('Game Log:', gameLog);
                 

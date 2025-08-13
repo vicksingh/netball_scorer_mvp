@@ -80,7 +80,7 @@ function NewGamePageContent() {
         state: {
           phase: { type: "quarter", index: 1 },
           isRunning: false,
-          phaseStartedAt: new Date().toISOString(),
+          phaseStartedAt: null, // Don't start timer until user clicks START
           elapsedMs: 0,
           scores: { A: 0, B: 0 },
           quarterScores: {
