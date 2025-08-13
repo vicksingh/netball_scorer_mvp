@@ -88,7 +88,7 @@ export interface Game {
   ownerId: string;
   ownerEmail: string;
   sharePublic: boolean;
-  isPubliclyViewable?: boolean; // Added for Firebase rules compatibility
+  // isPubliclyViewable removed from writes; kept for read compatibility via optional field
   teamA: { name: string };
   teamB: { name: string };
   location: string;
@@ -415,7 +415,6 @@ export async function createGame(gameData: Omit<Game, 'id' | 'createdAt' | 'owne
               ownerEmail: 'guest@local',
               deviceId: deviceId,
               sharePublic: true,
-              isPubliclyViewable: true, // Add this field for Firebase rules compatibility
               lastSyncedAt: Date.now(),
               version: 1,
             };
@@ -504,7 +503,6 @@ export async function createGame(gameData: Omit<Game, 'id' | 'createdAt' | 'owne
         createdAt: serverTimestamp() as Timestamp,
         ownerId: getFirebaseAuth()?.currentUser.uid,
         ownerEmail: getFirebaseAuth()?.currentUser.email || 'unknown',
-        isPubliclyViewable: gameData.sharePublic, // Add this field for Firebase rules compatibility
         lastSyncedAt: Date.now(),
         version: 1,
       };
@@ -1115,14 +1113,13 @@ export async function getPublicGame(gameId: string): Promise<Game | null> {
         console.log('Game document found in Firebase:', { 
           id: game.id, 
           sharePublic: game.sharePublic, 
-          isPubliclyViewable: game.isPubliclyViewable,
           ownerId: game.ownerId,
           teamA: game.teamA?.name,
           teamB: game.teamB?.name
         });
         
         // Check both sharePublic and isPubliclyViewable for compatibility
-        if (game.sharePublic || game.isPubliclyViewable) {
+        if (game.sharePublic || (game as any).isPubliclyViewable) {
           console.log('Game is public, returning Firebase data');
           console.log(`=== END GET PUBLIC GAME DEBUG ===`);
           return game;
