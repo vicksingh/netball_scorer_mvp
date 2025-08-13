@@ -1,6 +1,6 @@
 "use client";
 import { useRouter } from "next/navigation";
-import { useState, Suspense } from "react";
+import { useState, Suspense, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { createGame } from "../lib/firebase-utils";
 
@@ -23,8 +23,20 @@ function NewGamePageContent() {
 
   const [creating, setCreating] = useState(false);
 
+  // Add debugging information
+  useEffect(() => {
+    console.log('=== NEW GAME PAGE DEBUG ===');
+    console.log('Loading state:', loading);
+    console.log('User state:', user);
+    console.log('User ID:', user?.uid);
+    console.log('User email:', user?.email);
+    console.log('Is anonymous:', user?.isAnonymous);
+    console.log('=== END DEBUG ===');
+  }, [user, loading]);
+
   // Redirect if not authenticated
   if (!loading && !user) {
+    console.log('Redirecting to home - no user');
     r.push('/');
     return null;
   }
@@ -38,7 +50,16 @@ function NewGamePageContent() {
   }
 
   async function createGameHandler() {
-    if (!user) return;
+    if (!user) {
+      console.error('No user when trying to create game');
+      return;
+    }
+    
+    console.log('=== CREATE GAME HANDLER DEBUG ===');
+    console.log('User in handler:', user);
+    console.log('User ID:', user.uid);
+    console.log('User email:', user.email);
+    console.log('Is anonymous:', user.isAnonymous);
     
     try {
       setCreating(true);
@@ -73,11 +94,13 @@ function NewGamePageContent() {
         },
       };
       
+      console.log('Game data to create:', gameData);
       const gameId = await createGame(gameData);
+      console.log('Game created with ID:', gameId);
       r.push(`/game/${gameId}`);
     } catch (e) {
+      console.error('Error creating game:', e);
       alert("Failed to create game: " + (e as Error).message);
-      console.error(e);
     } finally {
       setCreating(false);
     }

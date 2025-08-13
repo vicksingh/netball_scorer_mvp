@@ -5,6 +5,9 @@ import { msToClock, nowMs, phaseDurationMs } from "../../lib/local-utils";
 import { onSnapshot, doc } from "firebase/firestore";
 import { getFirebaseDB } from "../../lib/firebase";
 
+// Force dynamic rendering to avoid SSR/CSR markup mismatch
+export const dynamic = 'force-dynamic';
+
 export default function ViewGamePage() {
   const { id } = useParams<{ id: string }>();
   const [game, setGame] = useState<any | null>(null);
@@ -13,6 +16,9 @@ export default function ViewGamePage() {
   const [loading, setLoading] = useState(true);
   const [lastUpdateTime, setLastUpdateTime] = useState<number>(0);
   const [updateSource] = useState<"firebase">("firebase");
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => setMounted(true), []);
 
   // Single real-time listener: public view should only read from Firestore
   useEffect(() => {
@@ -31,9 +37,14 @@ export default function ViewGamePage() {
         if (snap.exists()) {
           const data: any = snap.data();
           if (data?.sharePublic === true || data?.isPubliclyViewable === true) {
-            setGame(data);
-            setGameNotFound(false);
-            setLastUpdateTime(Date.now());
+            // Ignore partial/summary writes that don't include state/phase
+            if (!data?.state || !data?.state?.phase) {
+              console.warn('Snapshot missing state/phase; ignoring partial update');
+            } else {
+              setGame(data);
+              setGameNotFound(false);
+              setLastUpdateTime(Date.now());
+            }
           } else {
             setGameNotFound(true);
           }
@@ -52,23 +63,45 @@ export default function ViewGamePage() {
     return () => unsub();
   }, [id]);
 
-  // Timer effect for countdown
+  // Timer effect for countdown (robust to missing/invalid data)
   useEffect(() => {
-    if (!game) return;
-    const { state, settings } = game;
-    const timer = setInterval(() => {
-      const duration = phaseDurationMs(state.phase, settings);
-      const runningSince =
-        state.isRunning && state.phaseStartedAt
-          ? new Date(state.phaseStartedAt).getTime()
-          : null;
-      const elapsed = runningSince ? state.elapsedMs + (nowMs() - runningSince) : state.elapsedMs;
-      setLeft(Math.max(0, duration - elapsed));
-    }, 100);
-    return () => clearInterval(timer);
-  }, [game?.state.phase, game?.state.isRunning, game?.state.phaseStartedAt, game?.state.elapsedMs]);
+    if (!game || !game.state) {
+      setLeft(0);
+      return;
+    }
+    const state = game.state;
+    const safeSettings = {
+      numQuarters: game?.settings?.numQuarters ?? 4,
+      quarterDurationSec: game?.settings?.quarterDurationSec ?? 600,
+      breakDurationsSec: game?.settings?.breakDurationsSec ?? [180, 180, 180],
+      matchType: game?.settings?.matchType ?? "standard",
+    } as any;
 
-  if (loading) {
+    if (state?.phase?.type === "fulltime") {
+      setLeft(0);
+      return;
+    }
+
+    const tick = () => {
+      const duration = Number(phaseDurationMs(state?.phase ?? { type: "quarter", index: 1 }, safeSettings)) || 0;
+      let elapsed = Number(state?.elapsedMs) || 0;
+      if (state?.isRunning && state?.phaseStartedAt) {
+        const started = Date.parse(state.phaseStartedAt);
+        if (!Number.isNaN(started)) {
+          elapsed += Math.max(0, nowMs() - started);
+        }
+      }
+      const remaining = Math.max(0, duration - elapsed);
+      setLeft(Number.isFinite(remaining) ? remaining : 0);
+    };
+
+    tick();
+    const timer = setInterval(tick, 250);
+    return () => clearInterval(timer);
+  }, [game?.state, game?.settings]);
+
+  // Ensure server and client render the same UI initially
+  if (!mounted || loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
         <div className="text-center text-white">
@@ -105,7 +138,6 @@ export default function ViewGamePage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-      {/* Header */}
       <header className="bg-gradient-to-r from-slate-800/90 to-slate-700/90 backdrop-blur-md border-b border-slate-600/30">
         <div className="max-w-[1140px] mx-auto flex items-center justify-between px-6 py-4">
           <div className="flex items-center space-x-3">
@@ -128,19 +160,41 @@ export default function ViewGamePage() {
         </div>
       </header>
 
-      {/* Timer/Quarter Section */}
       <div className="max-w-[1140px] mx-auto px-4 py-6">
-        <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20 shadow-lg mb-4">
+        <div className={`backdrop-blur-sm rounded-2xl p-6 border border-white/20 shadow-lg mb-4 transition-all duration-500 ${
+          left <= 30000 && left > 0 // 30 seconds or less remaining
+            ? 'bg-gradient-to-br from-red-500/30 to-red-600/30 border-red-400/50 animate-pulse'
+            : 'bg-white/10'
+        }`}>
           <div className="text-center">
             <div className="text-white/60 text-sm font-medium uppercase tracking-wider mb-2">
               {state?.phase?.type === "quarter" ? `QUARTER ${state.phase.index || 1}` : state?.phase?.type === "break" ? `BREAK ${state.phase.index || 1}` : "FULL TIME"}
             </div>
-            <div className="text-6xl font-bold text-white tabular-nums leading-none">{msToClock(left)}</div>
+            <div className={`text-6xl font-bold text-white tabular-nums leading-none transition-all duration-500 ${
+              left <= 30000 && left > 0
+                ? 'text-red-100 drop-shadow-lg'
+                : 'text-white'
+            }`}>{msToClock(left)}</div>
             <div className="text-white/60 text-sm mt-2">{state?.isRunning ? "LIVE" : "PAUSED"}</div>
           </div>
         </div>
 
-        {/* Scores */}
+        {/* Centre Pass Indicator - Only show during quarters */}
+        {state?.phase?.type === "quarter" && (
+          <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/20 shadow-lg mb-4">
+            <div className="flex items-center justify-center">
+              <div className="text-center">
+                <div className="text-blue-300 text-sm font-medium uppercase tracking-wider mb-1">
+                  CENTRE PASS
+                </div>
+                <div className="text-xl font-bold text-white">
+                  {state?.centrePass === "A" ? (teamA?.name || 'Team A') : (teamB?.name || 'Team B')}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20 shadow-lg">
           <div className="grid grid-cols-2 items-center text-center gap-4">
             <div className="space-y-4">
@@ -154,7 +208,6 @@ export default function ViewGamePage() {
           </div>
         </div>
 
-        {/* Last Update Info */}
         <div className="text-center mt-4">
           <div className="text-slate-400 text-xs">Last updated: {lastUpdateTime ? new Date(lastUpdateTime).toLocaleTimeString() : "Never"} • Source: Firebase Real-time</div>
         </div>

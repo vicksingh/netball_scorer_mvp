@@ -124,7 +124,7 @@ export interface GameSummary {
 }
 
 // Network status tracking
-let isOnline = navigator.onLine;
+let isOnline = typeof window !== 'undefined' ? navigator.onLine : true;
 let isFirebaseConnected = true;
 
 // Listen for network changes
@@ -144,11 +144,23 @@ if (typeof window !== 'undefined') {
 // Check Firebase connectivity
 async function checkFirebaseConnection(): Promise<boolean> {
   try {
-    if (!isOnline) return false;
+    console.log('=== FIREBASE CONNECTION CHECK DEBUG ===');
+    console.log('isOnline:', isOnline);
+    console.log('typeof window:', typeof window);
+    console.log('navigator.onLine:', typeof window !== 'undefined' ? navigator.onLine : 'N/A');
+    
+    if (!isOnline) {
+      console.log('Connection check failed: Not online');
+      return false;
+    }
     
     // Allow both authenticated users AND anonymous users to connect to Firebase
     // Anonymous users need Firebase access for public game sharing
-    if (!getFirebaseAuth()?.currentUser) {
+    const auth = getFirebaseAuth();
+    console.log('Firebase auth instance:', auth);
+    console.log('Current user:', auth?.currentUser);
+    
+    if (!auth?.currentUser) {
       // Only log in development mode
       if (process.env.NODE_ENV === 'development') {
         console.log('Firebase connection check skipped: No auth user');
@@ -158,6 +170,8 @@ async function checkFirebaseConnection(): Promise<boolean> {
     }
     
     const db = getFirebaseDB();
+    console.log('Firebase DB instance:', db);
+    
     if (!db) {
       console.warn('Firebase connection check failed: Database not available');
       isFirebaseConnected = false;
@@ -169,41 +183,47 @@ async function checkFirebaseConnection(): Promise<boolean> {
       console.log('Testing Firebase connection...');
     }
     
-    // Try a simple Firebase operation with timeout
-    // Use a read-only operation since anonymous users can't write to test collections
-    const testDoc = doc(db, '_test_connection', 'test');
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Firebase connection timeout')), 5000)
-    );
+    // For registered users, just check if we can access the database
+    // Don't try to write to test collections that might not exist
+    const currentUser = auth.currentUser;
+    console.log('Current user details:', {
+      uid: currentUser.uid,
+      email: currentUser.email,
+      isAnonymous: currentUser.isAnonymous
+    });
     
-    // For anonymous users, just test if we can read from Firebase
-    // For authenticated users, test full read/write access
-    const currentUser = getFirebaseAuth()?.currentUser;
-    let testPromise;
-    
-    if (currentUser?.isAnonymous) {
+    if (currentUser.isAnonymous) {
       // Anonymous users: just test if we can connect to Firebase
-      testPromise = getDoc(testDoc).catch(() => {
+      // Use a read-only operation since anonymous users can't write to test collections
+      const testDoc = doc(db, '_test_connection', 'test');
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Firebase connection timeout')), 5000)
+      );
+      
+      const testPromise = getDoc(testDoc).catch(() => {
         // Ignore errors for anonymous users - just testing connectivity
         return null;
       });
+      
+      await Promise.race([testPromise, timeoutPromise]);
     } else {
-      // Authenticated users: test full read/write access
-      testPromise = Promise.all([
-        setDoc(testDoc, { timestamp: serverTimestamp() }, { merge: true }),
-        deleteDoc(testDoc)
-      ]);
+      // For registered users: just check if we can access the database
+      // Don't try to write to test collections that might not exist
+      // Just verify the database instance is working
+      console.log('Registered user - skipping test document operations, just checking DB access');
     }
-    
-    await Promise.race([testPromise, timeoutPromise]);
     
     // Only log in development mode
     if (process.env.NODE_ENV === 'development') {
       console.log('Firebase connection test successful');
     }
     isFirebaseConnected = true;
+    console.log('=== END FIREBASE CONNECTION CHECK DEBUG ===');
     return true;
   } catch (error) {
+    console.error('=== FIREBASE CONNECTION CHECK ERROR ===');
+    console.error('Error details:', error);
+    
     // Only log as warning if it's a permissions issue, otherwise as info
     if (error instanceof Error && (error.message.includes('Missing') || error.message.includes('insufficient permissions'))) {
       console.info('Firebase connection check: Permissions issue (checking if this is expected)');
@@ -211,6 +231,7 @@ async function checkFirebaseConnection(): Promise<boolean> {
       console.warn('Firebase connection check failed:', error);
     }
     isFirebaseConnected = false;
+    console.log('=== END FIREBASE CONNECTION CHECK ERROR ===');
     return false;
   }
 }
@@ -354,8 +375,13 @@ export async function createGame(gameData: Omit<Game, 'id' | 'createdAt' | 'owne
     console.log('=== CREATE GAME DEBUG ===');
     console.log('Game data received:', gameData);
     console.log('sharePublic flag:', gameData.sharePublic);
-    console.log('User auth state:', getFirebaseAuth()?.currentUser);
-    console.log('Is user anonymous:', getFirebaseAuth()?.currentUser?.isAnonymous);
+    
+    const auth = getFirebaseAuth();
+    console.log('Firebase auth instance:', auth);
+    console.log('Current user:', auth?.currentUser);
+    console.log('Is user anonymous:', auth?.currentUser?.isAnonymous);
+    console.log('User ID:', auth?.currentUser?.uid);
+    console.log('User email:', auth?.currentUser?.email);
     
     // Skip Firebase operations during build time
     if (isBuildTime) {
@@ -364,7 +390,8 @@ export async function createGame(gameData: Omit<Game, 'id' | 'createdAt' | 'owne
       return 'build-time-mock-id';
     }
 
-    if (!getFirebaseAuth()?.currentUser) {
+    if (!auth?.currentUser) {
+      console.error('No authenticated user found');
       throw new Error('User must be authenticated to create a game');
     }
 
@@ -372,7 +399,7 @@ export async function createGame(gameData: Omit<Game, 'id' | 'createdAt' | 'owne
     console.log('Generated game ID:', gameId);
     
     // Check if user is anonymous (guest)
-    if (getFirebaseAuth()?.currentUser.isAnonymous) {
+    if (auth.currentUser.isAnonymous) {
       console.log('Creating game for ANONYMOUS user');
       // Get device ID first for all guest games
       const deviceId = getDeviceId();
@@ -496,13 +523,15 @@ export async function createGame(gameData: Omit<Game, 'id' | 'createdAt' | 'owne
       return gameId;
     } else {
       console.log('Creating game for REGISTERED user');
+      console.log('User details - UID:', auth.currentUser.uid, 'Email:', auth.currentUser.email);
+      
       // For registered users: Save BOTH locally AND to Firebase
       const game: Game = {
         ...gameData,
         id: gameId,
         createdAt: serverTimestamp() as Timestamp,
-        ownerId: getFirebaseAuth()?.currentUser.uid,
-        ownerEmail: getFirebaseAuth()?.currentUser.email || 'unknown',
+        ownerId: auth.currentUser.uid,
+        ownerEmail: auth.currentUser.email || 'unknown',
         lastSyncedAt: Date.now(),
         version: 1,
       };
@@ -514,8 +543,8 @@ export async function createGame(gameData: Omit<Game, 'id' | 'createdAt' | 'owne
         ...gameData,
         id: gameId,
         createdAt: Date.now(),
-        ownerId: getFirebaseAuth()?.currentUser.uid,
-        ownerEmail: getFirebaseAuth()?.currentUser.email || 'unknown',
+        ownerId: auth.currentUser.uid,
+        ownerEmail: auth.currentUser.email || 'unknown',
         lastSyncedAt: Date.now(),
         version: 1,
       };
@@ -526,30 +555,43 @@ export async function createGame(gameData: Omit<Game, 'id' | 'createdAt' | 'owne
 
       // Try to save to Firebase (cloud backup)
       try {
+        console.log('Attempting to save to Firebase...');
         const firebaseConnected = await checkFirebaseConnection();
         console.log('Firebase connection status:', firebaseConnected);
         
         if (firebaseConnected) {
           console.log('Saving game to Firebase...');
-          await setDoc(doc(getFirebaseDB(), 'games', gameId), game);
+          const db = getFirebaseDB();
+          console.log('Firebase DB instance:', db);
           
-          // Also save to games collection for easy querying
-          const gameSummary: GameSummary = {
-            id: gameId,
-            shortId: gameData.shortId,
-            teamA: gameData.teamA.name,
-            teamB: gameData.teamB.name,
-            createdAt: game.createdAt,
-            location: gameData.location,
-            ownerId: game.ownerId,
-            ownerEmail: game.ownerEmail,
-          };
+          if (!db) {
+            throw new Error('Firebase database not available');
+          }
           
-          await setDoc(doc(getFirebaseDB(), 'games', gameId), gameSummary, { merge: true });
-          
-          // Update local game with sync confirmation
-          updateLocalGame(gameId, { lastSyncedAt: Date.now() });
-          console.log('Game created and synced to Firebase');
+          try {
+            await setDoc(doc(db, 'games', gameId), game);
+            console.log('Game document created in Firebase');
+            
+            // Update local game with sync confirmation
+            updateLocalGame(gameId, { lastSyncedAt: Date.now() });
+            console.log('Game created and synced to Firebase');
+          } catch (firebaseError: any) {
+            console.error('Firebase write operation failed:', firebaseError);
+            
+            // Check for specific Firebase permission errors
+            if (firebaseError.code === 'permission-denied') {
+              console.error('Permission denied - check Firebase security rules');
+              console.error('User UID:', auth.currentUser.uid);
+              console.error('Attempting to write to collection: games, document:', gameId);
+            } else if (firebaseError.code === 'unauthenticated') {
+              console.error('User not authenticated for Firebase operation');
+            } else if (firebaseError.code === 'not-found') {
+              console.error('Firebase collection or document not found');
+            }
+            
+            // Continue with local storage and queue for sync
+            throw firebaseError;
+          }
         } else {
           console.log('Firebase not connected, queuing for sync');
           // Queue for sync when online
@@ -563,7 +605,7 @@ export async function createGame(gameData: Omit<Game, 'id' | 'createdAt' | 'owne
           console.log('Game created locally, queued for Firebase sync');
         }
       } catch (error) {
-        console.warn('Failed to save to Firebase, continuing with local storage only:', error);
+        console.error('Failed to save to Firebase:', error);
         // Continue with local storage only - don't fail the game creation
         // Queue for sync when online
         saveSyncQueue({
@@ -573,6 +615,7 @@ export async function createGame(gameData: Omit<Game, 'id' | 'createdAt' | 'owne
           timestamp: Date.now(),
           version: 1,
         });
+        console.log('Game created locally, queued for Firebase sync after error');
       }
       
       console.log('=== END CREATE GAME DEBUG ===');
@@ -689,7 +732,18 @@ export async function loadGame(gameId: string): Promise<Game | null> {
           const gameDoc = await getDoc(gameRef);
           
           if (gameDoc.exists()) {
-            const firebaseGame = gameDoc.data() as Game;
+            const firebaseData = gameDoc.data();
+            console.log('=== LOAD GAME FIREBASE DEBUG ===');
+            console.log('Raw Firebase data:', firebaseData);
+            console.log('Firebase data keys:', Object.keys(firebaseData));
+            console.log('Firebase ownerId:', firebaseData.ownerId);
+            console.log('Firebase userId:', firebaseData.userId);
+            console.log('Firebase ownerEmail:', firebaseData.ownerEmail);
+            
+            const firebaseGame = firebaseData as Game;
+            console.log('Converted to Game type:', firebaseGame);
+            console.log('Game ownerId:', firebaseGame.ownerId);
+            console.log('=== END LOAD GAME FIREBASE DEBUG ===');
             
             // Save to local storage for future access
             const localGame = {
@@ -871,12 +925,21 @@ export async function updateGame(gameId: string, updates: Partial<Game>): Promis
       try {
         const firebaseConnected = await checkFirebaseConnection();
         if (firebaseConnected) {
+          console.log('=== FIREBASE UPDATE DEBUG ===');
+          console.log('Updating Firebase for registered user');
+          console.log('Game ID:', gameId);
+          console.log('Updates:', updates);
+          console.log('New version:', newVersion);
+          
           const gameRef = doc(getFirebaseDB(), 'games', gameId);
           await updateDoc(gameRef, {
             ...updates,
             lastSyncedAt: serverTimestamp(),
             version: newVersion,
           });
+          
+          console.log('Firebase update successful for registered user');
+          console.log('=== END FIREBASE UPDATE DEBUG ===');
           
           // Only log in development mode
           if (process.env.NODE_ENV === 'development') {
@@ -894,7 +957,12 @@ export async function updateGame(gameId: string, updates: Partial<Game>): Promis
           console.log('Game updated locally, queued for Firebase sync');
         }
       } catch (error) {
-        console.warn('Failed to update Firebase, continuing with local storage only:', error);
+        console.error('=== FIREBASE UPDATE ERROR ===');
+        console.error('Failed to update Firebase for registered user:', error);
+        console.error('Game ID:', gameId);
+        console.error('Updates:', updates);
+        console.error('=== END FIREBASE UPDATE ERROR ===');
+        
         // Continue with local storage only - don't fail the update
         // Queue for sync when online
         saveSyncQueue({

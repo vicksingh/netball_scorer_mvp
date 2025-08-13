@@ -1,4 +1,4 @@
-"use client";
+  "use client";
 import { useEffect, useRef, useState, Suspense, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "../../contexts/AuthContext";
@@ -35,20 +35,33 @@ function usePhaseTimer({
     const updateRemaining = () => {
       const now = Date.now();
       let totalElapsed = elapsedMs;
-      if (isRunning && phaseStartedAt) {
+      if (phaseStartedAt) {
         const startedAt = new Date(phaseStartedAt).getTime();
         totalElapsed = elapsedMs + Math.max(0, now - startedAt);
       }
       const remaining = Math.max(0, phaseDurationMs - totalElapsed);
+      const expired = remaining === 0;
+      
+      console.log('Timer update:', {
+        now,
+        totalElapsed,
+        remaining,
+        expired,
+        phaseDurationMs,
+        isRunning,
+        phaseStartedAt
+      });
+      
       setRemainingMs(remaining);
-      setIsExpired(remaining === 0);
+      setIsExpired(expired);
     };
 
     // Initial run
     updateRemaining();
 
-    // While running, keep updating every second
-    if (isRunning && phaseStartedAt) {
+    // Always keep updating every second, regardless of game state
+    // This ensures phases advance even when paused
+    if (phaseStartedAt) {
       interval = setInterval(updateRemaining, 1000);
     }
 
@@ -137,31 +150,50 @@ function GamePageContent() {
   const advancePhase = useCallback(async () => {
     if (!game?.state) return;
     
+    console.log('=== ADVANCE PHASE DEBUG ===');
     console.log('advancePhase called, current phase:', game?.state?.phase);
-    const np = nextPhase(game?.state?.phase, game?.settings);
-    console.log('Next phase:', np);
+    console.log('Current game state:', game?.state);
+    console.log('Current settings:', game?.settings);
     
-    // Auto-start timer when transitioning between phases (quarter → break and break → quarter)
-    const shouldAutoStart =
+    const np = nextPhase(game?.state?.phase, game?.settings);
+    console.log('Next phase calculated:', np);
+    
+    // Only auto-start timer when naturally transitioning between phases
+    // If user manually paused, respect that pause state
+    const shouldAutoStart = 
       (game?.state?.phase?.type === "quarter" && np.type === "break") ||
       (game?.state?.phase?.type === "break" && np.type === "quarter");
+    
+    // Preserve the user's manual pause state unless it's a natural phase transition
+    const newIsRunning = shouldAutoStart ? true : game?.state?.isRunning;
+    
+    console.log('Should auto-start timer:', shouldAutoStart);
+    console.log('New running state:', newIsRunning);
     
     const updatedGame = await updateGameOptimized(id, {
       state: {
         ...game?.state,
         phase: np,
-        isRunning: shouldAutoStart, // Auto-start if going from break to quarter
+        isRunning: newIsRunning, // Respect manual pause or auto-start for natural transitions
         elapsedMs: 0,
         phaseStartedAt: new Date().toISOString(),
       }
     });
     console.log('Updated game for advance:', updatedGame);
     if (updatedGame) safeSetGame(updatedGame);
+    console.log('=== END ADVANCE PHASE DEBUG ===');
   }, [id, game]);
 
   // Handle phase advancement after advancePhase is defined
   useEffect(() => {
-    if (!game?.state?.isRunning || !game?.state?.phaseStartedAt) return;
+    if (!game?.state?.phaseStartedAt) return;
+    
+    console.log('Phase advancement check:', {
+      isExpired,
+      phase: game?.state?.phase,
+      phaseStartedAt: game?.state?.phaseStartedAt,
+      remainingMs: remainingMs
+    });
     
     if (isExpired) {
       // Use zero grace for final quarter so it advances immediately
@@ -173,12 +205,58 @@ function GamePageContent() {
       const elapsed = Date.now() - startedAt;
       const expectedDuration = (game?.state?.phase && game?.settings) ? phaseDurationMs(game?.state?.phase, game?.settings) : 0;
 
+      console.log('Phase expired, checking advancement:', {
+        isFinalQuarter,
+        graceMs,
+        startedAt,
+        elapsed,
+        expectedDuration,
+        shouldAdvance: elapsed >= expectedDuration + graceMs
+      });
+
       if (elapsed >= expectedDuration + graceMs) {
         console.log('Phase expired (after grace), advancing to next phase');
         advancePhase();
       }
     }
-  }, [isExpired, game?.state?.isRunning, game?.state?.phaseStartedAt, game?.state?.phase, game?.settings, advancePhase]);
+  }, [isExpired, game?.state?.phaseStartedAt, game?.state?.phase, game?.settings, advancePhase, remainingMs]);
+
+  // Continuous phase advancement timer - runs every second to check for expired phases
+  useEffect(() => {
+    if (!game?.state?.phaseStartedAt || !game?.state?.phase || !game?.settings) return;
+    
+    const checkPhaseExpiry = () => {
+      const now = Date.now();
+      const startedAt = new Date(game.state.phaseStartedAt).getTime();
+      const elapsed = now - startedAt;
+      const expectedDuration = phaseDurationMs(game.state.phase, game.settings);
+      
+      console.log('Continuous phase check:', {
+        phase: game.state.phase,
+        startedAt,
+        elapsed,
+        expectedDuration,
+        remaining: expectedDuration - elapsed,
+        shouldAdvance: elapsed >= expectedDuration,
+        isRunning: game.state.isRunning
+      });
+      
+      // Only advance phases that have naturally expired
+      // Don't interfere with manually paused phases
+      if (elapsed >= expectedDuration) {
+        console.log('Phase naturally expired, advancing automatically...');
+        advancePhase();
+      }
+    };
+    
+    // Check immediately
+    checkPhaseExpiry();
+    
+    // Then check every second
+    const interval = setInterval(checkPhaseExpiry, 1000);
+    
+    return () => clearInterval(interval);
+  }, [game?.state?.phaseStartedAt, game?.state?.phase, game?.state?.isRunning, game?.settings, advancePhase]);
 
   // Error recovery effect - must be at top level
   useEffect(() => {
@@ -222,24 +300,39 @@ function GamePageContent() {
   useEffect(() => {
     const loadGameData = async () => {
       try {
+        console.log('=== LOAD GAME DEBUG ===');
+        console.log('Loading game for ID:', id);
+        console.log('Current user UID:', user?.uid);
+        console.log('Current user email:', user?.email);
+        
         const loadedGame = await loadGame(id);
-        console.log('Loading game for ID:', id, 'Found game:', loadedGame);
+        console.log('Loaded game:', loadedGame);
+        console.log('Loaded game ownerId:', loadedGame?.ownerId);
+        console.log('Loaded game userId:', loadedGame?.ownerId);
+        console.log('Ownership check:', loadedGame?.ownerId !== user?.uid);
+        
         if (loadedGame) {
           // Check if user owns the game
           if (user?.isAnonymous) {
             // For guest users, if we can load the game from local storage, they own it
+            console.log('User is anonymous, setting game');
             setGame(loadedGame);
-          } else if (loadedGame.userId !== user?.uid) {
+          } else if (loadedGame.ownerId !== user?.uid) {
             // For registered users, check if they own the game
+            console.log('User does not own this game, redirecting to view');
+            console.log('User UID:', user?.uid);
+            console.log('Game ownerId:', loadedGame.ownerId);
             setShouldRedirectToView(true);
             return;
           } else {
+            console.log('User owns this game, setting game');
             setGame(loadedGame);
           }
         } else {
           console.error('No game found for ID:', id);
           setShouldRedirect('/');
         }
+        console.log('=== END LOAD GAME DEBUG ===');
       } catch (error) {
         console.error('Error loading game:', error);
         setShouldRedirect('/');
@@ -265,7 +358,7 @@ function GamePageContent() {
             if (user?.isAnonymous) {
               // For guest users, if we can load the game from local storage, they own it
               setGame(loadedGame);
-            } else if (loadedGame.userId !== user?.uid) {
+            } else if (loadedGame.ownerId !== user?.uid) {
               // For registered users, check if they own the game
               setShouldRedirectToView(true);
               return;
@@ -479,13 +572,21 @@ function GamePageContent() {
     }, 2000); // Wait 2 seconds after last update before syncing
   };
 
-  // Manual sync function for hybrid games
+  // Manual sync function for ALL users (not just guest users)
   const manualSync = async () => {
-    if (!game || !user?.isAnonymous || !isHybridGuestGame(id)) return;
+    if (!game) return;
     
     try {
       setSyncStatus('syncing');
-              await updateGame(id, { state: game?.state });
+      
+      if (user?.isAnonymous && isHybridGuestGame(id)) {
+        // For guest users: sync the current state
+        await updateGame(id, { state: game?.state });
+      } else if (!user?.isAnonymous) {
+        // For registered users: sync the current state to Firebase
+        await updateGame(id, { state: game?.state });
+      }
+      
       setSyncStatus('synced');
       setLastSyncTime(Date.now());
       // Only log in development mode
@@ -601,6 +702,7 @@ function GamePageContent() {
     
     // Create a clean state update object
     const stateUpdate = {
+      ...game.state,  // Include the complete current state
       scores: { A: (game.state.scores.A || 0) + (team === "A" ? 1 : 0), B: (game.state.scores.B || 0) + (team === "B" ? 1 : 0) },
       quarterScores: updatedQuarterScores,
       centrePass: game.state.centrePass === "A" ? "B" : "A", // Toggle centre pass after each goal
@@ -686,14 +788,14 @@ function GamePageContent() {
             <div>
               <h1 className="text-white font-semibold text-lg tracking-wide">ScoZo - Live Match</h1>
               <p className="text-slate-300 text-xs">{new Date().toLocaleDateString('en-US', { 
-                weekday: 'long', 
+                weekday: 'short', 
                 year: 'numeric', 
                 month: 'short', 
                 day: 'numeric' 
-              }).toUpperCase()} • {new Date().toLocaleTimeString('en-US', {
+              })} - {new Date().toLocaleTimeString('en-US', {
                 hour: '2-digit',
                 minute: '2-digit',
-                hour12: true
+                hour12: false
               })}</p>
               {/* Sync Status Indicator */}
               {user?.isAnonymous && isHybridGuestGame(id) && (
@@ -712,11 +814,6 @@ function GamePageContent() {
                      syncStatus === 'syncing' ? 'Syncing...' : 
                      'Sync Error'}
                   </span>
-                  {syncStatus === 'synced' && (
-                    <span className="text-xs text-slate-400">
-                      • Last sync: {new Date(lastSyncTime).toLocaleTimeString()}
-                    </span>
-                  )}
                   {/* Manual Sync Button */}
                   <button
                     onClick={manualSync}
@@ -1276,6 +1373,29 @@ function GamePageContent() {
           </div>
         </div>
       )}
+      {/* Footer Status Bar */}
+      <div className="fixed bottom-0 left-0 right-0 z-30">
+        <div className="max-w-[1140px] mx-auto px-4 py-2">
+          <div className="mx-auto w-full md:w-auto bg-slate-800/80 border border-slate-600/30 rounded-full px-4 py-2 flex items-center justify-center gap-3 text-xs text-slate-300 backdrop-blur">
+            <div className={`w-2 h-2 rounded-full ${syncStatus === 'synced' ? 'bg-emerald-400' : syncStatus === 'syncing' ? 'bg-yellow-400 animate-pulse' : 'bg-red-400'}`}></div>
+            <span>{syncStatus === 'synced' ? 'Live' : syncStatus === 'syncing' ? 'Syncing…' : 'Sync Error'}</span>
+            {syncStatus === 'synced' && (
+              <span className="text-slate-400">• Last sync: {new Date(lastSyncTime).toLocaleTimeString()}</span>
+            )}
+            <button
+              onClick={manualSync}
+              disabled={syncStatus === 'syncing'}
+              className={`px-2 py-1 rounded ${syncStatus === 'syncing' ? 'bg-slate-600 text-slate-400 cursor-not-allowed' : 'bg-slate-700 hover:bg-slate-600 text-slate-200'}`}
+            >
+              {syncStatus === 'syncing' ? 'Syncing…' : 'Sync Now'}
+            </button>
+            <span className="ml-2 pl-2 border-l border-slate-600 flex items-center gap-2">
+              <span className={`w-2 h-2 rounded-full ${typeof window !== 'undefined' && navigator.onLine ? 'bg-emerald-400' : 'bg-red-400'}`}></span>
+              <span>{typeof window !== 'undefined' && navigator.onLine ? 'Online' : 'Offline'}</span>
+            </span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

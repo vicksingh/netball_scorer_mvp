@@ -5,10 +5,11 @@
 [build.environment]
   NODE_VERSION = "18"
 
-[[redirects]]
-  from = "/*"
-  to = "/"
-  status = 200
+# Removed the problematic redirect rule that was preventing access to /new page
+# [[redirects]]
+#   from = "/*"
+#   to = "/"
+#   status = 200
 
 [[headers]]
   for = "/*"

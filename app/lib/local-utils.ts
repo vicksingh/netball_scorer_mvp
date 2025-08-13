@@ -18,24 +18,41 @@ export function phaseDurationMs(phase: any, settings: any): number {
   
   if (phase.type === "quarter") {
     const duration = settings.quarterDurationSec * 1000;
+    console.log('Quarter duration:', { phase, duration, settings: settings.quarterDurationSec });
     return duration;
   } else if (phase.type === "break") {
     const duration = settings.breakDurationsSec[phase.index - 1] * 1000;
+    console.log('Break duration:', { 
+      phase, 
+      duration, 
+      breakIndex: phase.index, 
+      arrayIndex: phase.index - 1,
+      breakDurations: settings.breakDurationsSec 
+    });
     return duration;
   }
   return 0;
 }
 
 export function nextPhase(phase: any, settings: any): any {
+  console.log('nextPhase called:', { phase, settings });
+  
   if (phase.type === "quarter") {
     if (phase.index < settings.numQuarters) {
-      return { type: "break", index: phase.index };
+      const next = { type: "break", index: phase.index };
+      console.log('Quarter -> Break:', next);
+      return next;
     } else {
-      return { type: "fulltime" };
+      const next = { type: "fulltime" };
+      console.log('Quarter -> Fulltime:', next);
+      return next;
     }
   } else if (phase.type === "break") {
-    return { type: "quarter", index: phase.index + 1 };
+    const next = { type: "quarter", index: phase.index + 1 };
+    console.log('Break -> Quarter:', next);
+    return next;
   }
+  console.log('No phase change:', phase);
   return phase;
 }
 
