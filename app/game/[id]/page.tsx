@@ -796,49 +796,7 @@ function GamePageContent() {
                   hour12: false
                 })}</p>
               )}
-              {/* Sync Status Indicator */}
-              {user?.isAnonymous && isHybridGuestGame(id) && (
-                <div className="flex items-center space-x-2 mt-1">
-                  <div className={`w-2 h-2 rounded-full ${
-                    syncStatus === 'synced' ? 'bg-emerald-400' : 
-                    syncStatus === 'syncing' ? 'bg-yellow-400 animate-pulse' : 
-                    'bg-red-400'
-                  }`}></div>
-                  <span className={`text-xs ${
-                    syncStatus === 'synced' ? 'text-emerald-400' : 
-                    syncStatus === 'syncing' ? 'text-yellow-400' : 
-                    'text-red-400'
-                  }`}>
-                    {syncStatus === 'synced' ? 'Live' : 
-                     syncStatus === 'syncing' ? 'Syncing...' : 
-                     'Sync Error'}
-                  </span>
-                  {/* Manual Sync Button */}
-                  <button
-                    onClick={manualSync}
-                    disabled={syncStatus === 'syncing'}
-                    className={`px-2 py-1 text-xs rounded ${
-                      syncStatus === 'syncing' 
-                        ? 'bg-slate-600 text-slate-400 cursor-not-allowed' 
-                        : 'bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white'
-                    } transition-colors`}
-                  >
-                    {syncStatus === 'syncing' ? 'Syncing...' : 'Sync Now'}
-                  </button>
-                  
-                  {/* Firebase Connection Status */}
-                  <div className="flex items-center space-x-1 ml-2 pl-2 border-l border-slate-600">
-                    <div className={`w-2 h-2 rounded-full ${
-                      typeof window !== 'undefined' && navigator.onLine ? 'bg-emerald-400' : 'bg-red-400'
-                    }`}></div>
-                    <span className={`text-xs ${
-                      typeof window !== 'undefined' && navigator.onLine ? 'text-emerald-400' : 'text-red-400'
-                    }`}>
-                      {typeof window !== 'undefined' && navigator.onLine ? 'Online' : 'Offline'}
-                    </span>
-                  </div>
-                </div>
-              )}
+
             </div>
           </div>
           <button 
